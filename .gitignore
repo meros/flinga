@@ -1,0 +1,19 @@
+# The official APK, its decompile and device captures stay local: untrusted input and copyrighted code.
+apk/
+*.png
+!client/fixtures/logos/*.png
+!client/fixtures/logos-light/*.png
+!client/shots/*.png
+zap.log
+build.log
+test.log
+steps/
+client/.gradle/
+client/build/
+client/app/build/
+client/local.properties
+.claude/
+!client/app/src/main/res/**/*.png
+!branding/**/*.png
+client/shots/
+life.log

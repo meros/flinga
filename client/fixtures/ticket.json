@@ -1,0 +1,1 @@
+{"streams":[{"url":"http://fixture.invalid/manifest.mpd","packaging":"DASH_MP4_CTR","drm":{"type":"WIDEVINE","licenseUrl":"http://fixture.invalid/license","headers":{}}}]}

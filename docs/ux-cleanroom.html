@@ -1,0 +1,1942 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flinga UX-arkitektur · Två ytor och en list</title>
+<style>
+:root {
+  --bg: #0B0B10;            /* Flinga BG */
+  --panel: #1C1C25;         /* SURFACE */
+  --raised: #262630;        /* SURFACE_RAISED */
+  --fg: #F5F5F7;            /* TEXT */
+  --fg-2: #B0AFBA;          /* TEXT_2 */
+  --fg-3: #85848F;          /* TEXT_3 */
+  --focus: #F5F3F8;         /* FOCUS fill */
+  --on-focus: #14121A;      /* ON_FOCUS text */
+  --accent: #C27CF5;        /* ACCENT_ON_DARK */
+  --accent-fill: #990AE6;   /* ACCENT brand fill */
+  --track: rgba(255,255,255,0.22);
+  --wire: rgba(194,124,245,0.35);
+  --ok: #7ED4A0;
+  --warn: #E4B363;
+  --hairline: rgba(255,255,255,0.12);
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  padding: 0;
+  margin: 0;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 32px 20px 80px;
+}
+
+/* Header & Meta */
+.top-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--raised);
+  padding-bottom: 16px;
+  margin-bottom: 28px;
+  font-size: 13px;
+  color: var(--fg-3);
+}
+.brand-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--fg);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.brand-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-fill);
+}
+.nav-links {
+  display: flex;
+  gap: 16px;
+}
+.nav-links a {
+  color: var(--fg-2);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.nav-links a:hover { color: var(--accent); }
+
+/* Typography */
+.kicker {
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+h1 {
+  font-size: clamp(28px, 4.5vw, 44px);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  margin: 0 0 12px;
+  line-height: 1.15;
+}
+.lead {
+  font-size: 18px;
+  color: var(--fg-2);
+  max-width: 76ch;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+.lead strong { color: var(--fg); }
+
+h2 {
+  font-size: 24px;
+  font-weight: 750;
+  letter-spacing: -0.015em;
+  margin: 56px 0 16px;
+  padding-top: 24px;
+  border-top: 1px solid var(--raised);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+h2 .num {
+  background: var(--raised);
+  color: var(--accent);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 800;
+}
+h3 {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 28px 0 10px;
+  color: var(--fg);
+}
+p {
+  color: var(--fg-2);
+  max-width: 76ch;
+  margin: 0 0 14px;
+}
+p strong, li strong { color: var(--fg); }
+
+/* Scorecards */
+.score-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin: 24px 0 36px;
+}
+.score-card {
+  background: var(--panel);
+  border: 1px solid var(--raised);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+}
+.score-card .lbl {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--fg-3);
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+.score-card .val {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.score-card .sub {
+  font-size: 13px;
+  color: var(--fg-2);
+  margin-top: 4px;
+}
+
+/* Compare Rows */
+.compare-container {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  margin: 24px 0 40px;
+}
+.compare-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 820px) {
+  .compare-row { grid-template-columns: 1fr; }
+}
+.compare-col {
+  background: var(--panel);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--raised);
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+.compare-col.before {
+  border-left: 4px solid var(--warn);
+}
+.compare-col.after {
+  border-left: 4px solid var(--ok);
+  background: linear-gradient(180deg, rgba(153, 10, 230, 0.05) 0%, var(--panel) 100%);
+}
+.badge-tag {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.badge-tag.before { background: rgba(228, 179, 99, 0.15); color: var(--warn); }
+.badge-tag.after { background: rgba(126, 212, 160, 0.15); color: var(--ok); }
+.compare-col h4 {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  color: var(--fg);
+}
+.compare-col ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--fg-2);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* TV Frames & Annotations */
+.tvrow {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  margin: 20px 0 32px;
+}
+@media (max-width: 900px) {
+  .tvrow { flex-direction: column; }
+}
+.tv {
+  flex: 1 1 600px;
+  min-width: 320px;
+  max-width: 660px;
+  aspect-ratio: 16/9;
+  background: #000;
+  border: 1px solid var(--raised);
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 16px 36px rgba(0,0,0,0.45);
+  font-size: clamp(8px, 1.35vw, 12.5px);
+}
+.ann {
+  flex: 1 1 300px;
+  font-size: 14px;
+  color: var(--fg-2);
+  line-height: 1.55;
+}
+.ann h4 {
+  font-size: 16px;
+  margin: 0 0 6px;
+  color: var(--fg);
+}
+.k {
+  display: inline-block;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 11.5px;
+  font-weight: 750;
+  color: var(--fg);
+  margin: 0 2px;
+}
+
+/* 10-foot Screen Components */
+.safe {
+  position: absolute;
+  inset: 5.5% 5% 5% 5%;
+}
+.sim-video-bg {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 70% 30%, #201a35 0%, #0c0a18 70%, #05040a 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sim-video-bg::after {
+  content: "LIVE STREAM 1080p50";
+  font-size: 1.1em;
+  letter-spacing: 0.15em;
+  color: rgba(255,255,255,0.08);
+  font-weight: 800;
+}
+.strip {
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  bottom: 5%;
+  background: linear-gradient(to top, rgba(11,11,16,0.96) 0%, rgba(11,11,16,0.85) 75%, transparent 100%);
+  padding: 4% 0 1.6%;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+.eyebrow {
+  color: var(--fg);
+  font-weight: 800;
+  font-size: 1.8em;
+  letter-spacing: 0.04em;
+  opacity: 0.95;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.eyebrow .channel-tag {
+  background: var(--accent-fill);
+  color: #fff;
+  font-size: 0.6em;
+  padding: 0.2em 0.6em;
+  border-radius: 3px;
+  font-weight: 800;
+}
+.title {
+  font-weight: 700;
+  font-size: 2.2em;
+  margin-top: 0.15em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.meta {
+  color: var(--fg-3);
+  font-size: 1.15em;
+  margin-top: 0.2em;
+}
+.bar {
+  position: relative;
+  height: 0.55em;
+  background: var(--track);
+  border-radius: 99px;
+  margin-top: 0.9em;
+}
+.bar .fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent-fill);
+  border-radius: 99px;
+}
+.bar .head {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 1.4em;
+  height: 1.4em;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(0,0,0,0.6);
+}
+.bar .tick {
+  position: absolute;
+  top: -1em;
+  transform: translateX(-50%);
+  color: var(--accent);
+  font-size: 1em;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.times {
+  display: flex;
+  justify-content: space-between;
+  color: var(--fg-3);
+  font-size: 1.15em;
+  margin-top: 0.35em;
+  font-variant-numeric: tabular-nums;
+}
+.pills {
+  display: flex;
+  gap: 0.8em;
+  margin-top: 1em;
+  flex-wrap: wrap;
+}
+.pill {
+  background: var(--panel);
+  color: var(--fg);
+  border-radius: 6px;
+  padding: 0.45em 0.9em;
+  font-size: 1.2em;
+  white-space: nowrap;
+  border: 1px solid var(--hairline);
+}
+.pill.dim { color: var(--fg-3); border-color: transparent; }
+.pill.focused {
+  background: var(--focus);
+  color: var(--on-focus);
+  font-weight: 750;
+  box-shadow: 0 0 10px rgba(245,243,248,0.4);
+}
+
+/* Grid Components */
+.nav-tabs {
+  display: flex;
+  gap: 0.8em;
+  margin-bottom: 2%;
+}
+.tab-item {
+  border-radius: 4px;
+  padding: 0.3em 1em;
+  font-size: 1.2em;
+  color: var(--fg-2);
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+}
+.tab-item.active {
+  background: var(--focus);
+  color: var(--on-focus);
+  font-weight: 750;
+}
+.grid {
+  position: absolute;
+  inset: 5.5% 5% 5% 5%;
+  display: flex;
+  flex-direction: column;
+  gap: 2%;
+}
+.gridhead {
+  display: flex;
+  gap: 2%;
+  align-items: center;
+  color: var(--fg-3);
+  font-size: 1.15em;
+  font-variant-numeric: tabular-nums;
+}
+.gridhead .now {
+  border: 1px solid var(--wire);
+  color: var(--accent);
+  border-radius: 4px;
+  padding: 0.1em 0.5em;
+  font-weight: 750;
+}
+.grow {
+  display: flex;
+  gap: 1.5%;
+  align-items: center;
+  flex: 1;
+  min-height: 0;
+}
+.glogo {
+  flex: 0 0 13%;
+  color: var(--fg);
+  font-weight: 800;
+  font-size: 1.4em;
+  text-transform: uppercase;
+}
+.glane {
+  flex: 1;
+  display: flex;
+  gap: 0.8%;
+  height: 84%;
+  position: relative;
+  min-width: 0;
+}
+.gblock {
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: 0.35em;
+  padding: 0.3em 0.6em;
+  font-size: 1.1em;
+  color: var(--fg-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  position: relative;
+}
+.gblock.focused {
+  background: var(--focus);
+  color: var(--on-focus);
+  font-weight: 750;
+  border-color: #fff;
+}
+.gblock .prog {
+  position: absolute;
+  left: 0.6em;
+  right: 0.6em;
+  bottom: 0.3em;
+  height: 0.25em;
+  border-radius: 99px;
+  background: var(--track);
+}
+.gblock .prog i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent-fill);
+  border-radius: 99px;
+}
+.nowline {
+  position: absolute;
+  top: 5.5%;
+  bottom: 12%;
+  width: 2px;
+  background: var(--accent);
+  left: 33%;
+  pointer-events: none;
+}
+.nowline::before {
+  content: "";
+  position: absolute;
+  top: -1em;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0.8em;
+  height: 0.8em;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.gfoot {
+  display: flex;
+  gap: 1.6em;
+  color: var(--fg-2);
+  font-size: 1.1em;
+  margin-top: auto;
+}
+.gfoot b { color: var(--fg); }
+
+/* Catalogue & Posters */
+.cat-shelf {
+  display: flex;
+  flex-direction: column;
+  gap: 2%;
+  flex: 1;
+}
+.shelf-title {
+  font-size: 1.2em;
+  font-weight: 700;
+  color: var(--fg);
+}
+.posters-row {
+  display: flex;
+  gap: 1.2%;
+  flex: 1;
+}
+.pcard {
+  flex: 1;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: 0.4em;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0.5em;
+}
+.pcard.focused {
+  background: var(--focus);
+  border-color: #fff;
+}
+.pcard .thumb {
+  position: absolute;
+  inset: 6% 6% 30% 6%;
+  background: linear-gradient(135deg, #262438 0%, #151322 100%);
+  border-radius: 0.3em;
+}
+.pcard .name {
+  font-size: 1.05em;
+  color: var(--fg);
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  position: relative;
+  z-index: 2;
+}
+.pcard.focused .name { color: var(--on-focus); }
+
+/* Universal Picker Sheet */
+.dim-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+}
+.picker-sheet {
+  position: absolute;
+  right: 5%;
+  bottom: 5%;
+  width: 44%;
+  background: var(--panel);
+  border: 1px solid var(--raised);
+  border-radius: 0.8em;
+  padding: 1.2em 1.4em;
+  box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+}
+.sh-eyebrow {
+  color: var(--fg-3);
+  font-size: 1em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 750;
+}
+.sh-title {
+  font-size: 1.8em;
+  font-weight: 800;
+  margin: 0.2em 0 0.8em;
+}
+.p-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.55em 0.8em;
+  border-radius: 0.4em;
+  color: var(--fg-2);
+  font-size: 1.25em;
+  margin-bottom: 0.3em;
+}
+.p-row.focused {
+  background: var(--focus);
+  color: var(--on-focus);
+  font-weight: 700;
+}
+.p-row .val {
+  font-size: 0.9em;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+/* =========================================================
+   THE INTERACTIVE SIMULATOR
+   ========================================================= */
+.sim-wrapper {
+  background: #06050a;
+  border: 1px solid var(--raised);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin: 32px 0 48px;
+}
+.sim-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.sim-header h3 { margin: 0; }
+.sim-badge {
+  background: rgba(194, 124, 245, 0.15);
+  color: var(--accent);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.sim-controls-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.sim-btn {
+  background: var(--panel);
+  border: 1px solid var(--raised);
+  color: var(--fg);
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sim-btn:hover {
+  background: var(--raised);
+  border-color: var(--accent);
+}
+.sim-btn.active {
+  background: var(--accent-fill);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.sim-stage {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+@media (max-width: 980px) {
+  .sim-stage { flex-direction: column; }
+}
+
+.sim-tv {
+  flex: 1 1 700px;
+  aspect-ratio: 16/9;
+  background: #000;
+  border: 2px solid var(--raised);
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+  font-size: clamp(8px, 1.45vw, 13px);
+  user-select: none;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+}
+.sim-tv:focus-within { border-color: var(--accent); }
+
+/* Remote Control */
+.sim-remote {
+  width: 240px;
+  background: #14131C;
+  border: 1px solid var(--raised);
+  border-radius: 28px;
+  padding: 24px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+}
+.remote-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+}
+.dpad {
+  width: 150px;
+  height: 150px;
+  background: #201f2d;
+  border-radius: 50%;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,0.4);
+}
+.dpad-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg-2);
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s;
+}
+.dpad-btn:active {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+.dpad-up { grid-column: 2; grid-row: 1; border-radius: 50% 50% 0 0; }
+.dpad-left { grid-column: 1; grid-row: 2; border-radius: 50% 0 0 50%; }
+.dpad-center {
+  grid-column: 2; grid-row: 2;
+  background: #2b293c;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 13px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.dpad-center:active { background: var(--accent-fill); }
+.dpad-right { grid-column: 3; grid-row: 2; border-radius: 0 50% 50% 0; }
+.dpad-down { grid-column: 2; grid-row: 3; border-radius: 0 0 50% 50%; }
+
+.remote-action-row {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  justify-content: center;
+}
+.rem-btn {
+  background: #262436;
+  border: 1px solid var(--hairline);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 14px;
+  cursor: pointer;
+  flex: 1;
+  text-align: center;
+  transition: all 0.1s;
+}
+.rem-btn:active {
+  background: var(--accent-fill);
+  color: #fff;
+}
+.remote-hints {
+  font-size: 11.5px;
+  color: var(--fg-3);
+  text-align: center;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+.remote-hints kbd {
+  background: #262436;
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--fg-2);
+}
+
+.sim-hud {
+  margin-top: 16px;
+  background: var(--panel);
+  border: 1px solid var(--raised);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--fg-2);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.hud-item { display: flex; align-items: center; gap: 8px; }
+.hud-label { color: var(--fg-3); font-size: 11px; text-transform: uppercase; font-weight: 700; }
+.hud-val { color: var(--fg); font-weight: 700; font-family: monospace; }
+.hud-val.accent { color: var(--accent); }
+
+/* Table */
+table.keys {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+  margin: 16px 0 28px;
+}
+table.keys th, table.keys td {
+  border: 1px solid var(--raised);
+  padding: 10px 14px;
+  text-align: left;
+  vertical-align: top;
+}
+table.keys th {
+  color: var(--fg-2);
+  font-weight: 700;
+  background: var(--panel);
+}
+table.keys td:first-child {
+  font-weight: 750;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.table-scroll { overflow-x: auto; }
+
+.slice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 20px 0;
+}
+.slice-card {
+  background: var(--panel);
+  border: 1px solid var(--raised);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+}
+.slice-card.s1 { border-left: 4px solid var(--accent); }
+.slice-card.s2 { border-left: 4px solid var(--ok); }
+.slice-card.s3 { border-left: 4px solid #64B5F6; }
+.slice-card h4 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.slice-card p { margin: 0; font-size: 13.5px; }
+
+footer {
+  margin-top: 60px;
+  padding-top: 24px;
+  border-top: 1px solid var(--raised);
+  color: var(--fg-3);
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <nav class="top-nav">
+    <div class="brand-badge"><span class="brand-dot"></span> Flinga UX-arkitektur</div>
+    <div class="nav-links">
+      <a href="#principles">Principer</a>
+      <a href="#before-after">Före & Efter</a>
+      <a href="#screens">Skärmar</a>
+      <a href="#interactive-demo">Interaktiv Demo</a>
+      <a href="#keymap">Tangentkarta</a>
+      <a href="#roadmap">Steg för steg</a>
+    </div>
+  </nav>
+
+  <header>
+    <div class="kicker">Flinga UX-specifikation · Målarkitektur</div>
+    <h1>Två ytor och en list</h1>
+    <p class="lead">
+      Ett radikalt omtag från grunden: <strong>fem spretande ytor kollapsas till två ytor och en list</strong>.
+      Målet: uppenbart, direkt, få skärmar och ortogonala kontroller. Inga modala fällor, inga dolda menyer,
+      och max två knapptryck från ren TV-bild till vilket innehåll som helst.
+    </p>
+  </header>
+
+  <!-- Metric scorecard -->
+  <div class="score-grid">
+    <div class="score-card">
+      <div class="lbl">Ytor över video</div>
+      <div class="val">5 → 2</div>
+      <div class="sub">Video + Webbläsare (slopat rail/panel)</div>
+    </div>
+    <div class="score-card">
+      <div class="lbl">Max tryck till tablå</div>
+      <div class="val">1 tryck</div>
+      <div class="sub">Via Back på ren bild (eller Guide-knapp)</div>
+    </div>
+    <div class="score-card">
+      <div class="lbl">Byta undertext</div>
+      <div class="val">3 tryck</div>
+      <div class="sub">Halverad tid mot dagens 6 tryck i undermenyer</div>
+    </div>
+    <div class="score-card">
+      <div class="lbl">Modala tillstånd</div>
+      <div class="val">0 st</div>
+      <div class="sub">Samma tangentbetydelse i alla sändningsformer</div>
+    </div>
+  </div>
+
+  <!-- SECTION 1: MAIN IDEA & PRINCIPLES -->
+  <section id="principles">
+    <h2><span class="num">1</span> Huvudidé och de fyra principerna</h2>
+    <p>
+      Dagens applikation (se <code>docs/UX-MAP.md</code>) fungerar tekniskt och har snabb uppspelning, men har
+      byggt på sig lager: en passiv banner, en full overlay med knappar, en 5-delad vänsterspalt (rail), en utfällbar
+      panellista, en separat fullskärmstablå samt tre olika inställningsblad.
+    </p>
+    <p>
+      Förslaget ersätter detta med <strong>fyra kompromisslösa principer</strong>:
+    </p>
+
+    <div class="compare-container">
+      <div class="compare-row">
+        <div class="compare-col after">
+          <h4>1. Uppenbart (Obvious)</h4>
+          <p>
+            Varje tangent har en entydig mening per yta. Vänster/höger är <em>alltid</em> tid på video och kolumner i tablån.
+            Inga modala ord ("passiv" vs "interaktiv"). Tittaren behöver aldrig gissa vad OK gör.
+          </p>
+        </div>
+        <div class="compare-col after">
+          <h4>2. Direkt (Direct)</h4>
+          <p>
+            Max två knapptryck från ren bild till vilket program som helst. Från vilken vy som helst räcker
+            ett tryck på Back eller Direkt för att återgå till ren direktsänd bild.
+          </p>
+        </div>
+      </div>
+      <div class="compare-row">
+        <div class="compare-col after">
+          <h4>3. Få ytor (Few Surfaces)</h4>
+          <p>
+            Endast <strong>tre komponenter</strong> totalt i hela appen:
+            <strong>Yta 1 (Video)</strong> med en enhetlig bottenlist;
+            <strong>Yta 2 (Webbläsaren)</strong> som samlar Tablå och Katalog;
+            samt <strong>Yta 3 (Väljarbladet)</strong> som ett universellt inställningsblad. Inga nästlade blad.
+          </p>
+        </div>
+        <div class="compare-col after">
+          <h4>4. Ortogonalt (Orthogonal)</h4>
+          <p>
+            Tidsaxeln är sammanhängande över programgränser. Spolar du bakåt förbi start hoppar du sömlöst
+            in i föregående programs catch-up. Live, start-over och arkiv lyder under exakt samma navigeringslagar.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 2: BEFORE / AFTER -->
+  <section id="before-after">
+    <h2><span class="num">2</span> Före & Efter: Arkitektonisk jämförelse</h2>
+    <p>
+      Här ställs den nuvarande implementationen mot det nya systemet över de fyra mest kritiska användarresorna.
+    </p>
+
+    <div class="compare-container">
+      <div class="compare-row">
+        <div class="compare-col before">
+          <span class="badge-tag before">Före (Dagens build)</span>
+          <h4>Spelarens overlay: Tvådelad och trög</h4>
+          <ul>
+            <li><strong>Uppdelad i två lägen:</strong> "Lätt" passiv banner (4 s) utan knappar, och "Full" interaktiv overlay.</li>
+            <li>Kräver ett extra tryck på OK bara för att väcka knappraden.</li>
+            <li>Vänsterpil på första knappen öppnar vänstermenyn (rail peek) – krockar med spolning.</li>
+            <li>Förklarande hjälptexter i fotnoten ("OK Visa knappar") för att leda användaren.</li>
+          </ul>
+        </div>
+        <div class="compare-col after">
+          <span class="badge-tag after">Efter (Målarkitektur)</span>
+          <h4>Spelarens list: Enhetlig bottenlist</h4>
+          <ul>
+            <li><strong>En enda form:</strong> Bottenlisten visar tidslinje och direkttagg direkt.</li>
+            <li>OK från ren video fokuserar omedelbart första knappen (Paus/Spela från början).</li>
+            <li>Vänster/höger är alltid spolning över programgränser. Ingen vänstermeny som tjuvkikar.</li>
+            <li>Noll modala ord – gränssnittet förklarar sig självt utan instruktionstexter.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="compare-row">
+        <div class="compare-col before">
+          <span class="badge-tag before">Före (Dagens build)</span>
+          <h4>Navigering: Rail + Panel + Tablå</h4>
+          <ul>
+            <li>Vänstermeny (92 dp rail) med 5 flikar (Kanaler, Tablå, Sök, Min lista, Inställningar).</li>
+            <li>Utfällbar panel som täcker 48–80 % av bilden och skapar upp till 4 nivåers djup.</li>
+            <li>Tablån är en separat fullskärmsvy helt frikopplad från Kanaler-listan.</li>
+            <li>Duplicerad information: Kanaler i railen visar samma sak som raderna i tablån.</li>
+          </ul>
+        </div>
+        <div class="compare-col after">
+          <span class="badge-tag after">Efter (Målarkitektur)</span>
+          <h4>Webbläsaren: En gemensam guide</h4>
+          <ul>
+            <li><strong>En gemensam fullskärmsguide</strong> för all navigering, nådd med Back/Guide.</li>
+            <li><strong>Tablån (Kanaler × Tid):</strong> Horisontell tidslinje med nu-linje över hela dygnet.</li>
+            <li><strong>Katalog & Sök:</strong> Fortsätt titta och sök integrerat under kanalerna.</li>
+            <li>Railen och panelen tas bort helt – frigör minne och förenklar koden drastiskt.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="compare-row">
+        <div class="compare-col before">
+          <span class="badge-tag before">Före (Dagens build)</span>
+          <h4>Inställningar: Nästlade blad (Sheets)</h4>
+          <ul>
+            <li>Långtryck OK öppnar <code>Alternativ</code>.</li>
+            <li>För att byta undertext måste man klicka på "Ljud och text", vilket öppnar ett <em>nytt</em> underblad.</li>
+            <li>Nästlade blad kräver komplicerad ångra-logik (Back stack) och ökar tryckantalet.</li>
+          </ul>
+        </div>
+        <div class="compare-col after">
+          <span class="badge-tag after">Efter (Målarkitektur)</span>
+          <h4>Inställningar: Ett universellt väljarblad</h4>
+          <ul>
+            <li><strong>Ett universellt 400 dp blad</strong> på skärmens högersida för alla val.</li>
+            <li>Alla inställningar (Spela från början, Ljud, Undertext, Kvalitet) ligger som rader i samma blad.</li>
+            <li>Alternativ expanderar och växlas direkt i raden med OK eller ←/→. Noll nästlade popup-rutor.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 3: ACTUAL SCREENS -->
+  <section id="screens">
+    <h2><span class="num">3</span> Faktiska skärmar (Wireframes i 16:9)</h2>
+    <p>
+      Skärmarna nedan är uppbyggda med appens exakta designtokens och proportioner (1920×1080 px, säker marginal 96/54 px).
+    </p>
+
+    <!-- Screen 1: Clean Video with Passive Strip -->
+    <h3>Skärm 1: Ren video med passiv bottenlist</h3>
+    <div class="tvrow">
+      <div class="tv">
+        <div class="sim-video-bg"></div>
+        <div class="strip">
+          <div class="eyebrow">
+            <span>SVT1</span>
+            <span class="channel-tag">DIREKT</span>
+          </div>
+          <div class="title">Fråga Lund · Säsong 9 Avsnitt 4</div>
+          <div class="meta">Kultur & Vetenskap · 20:00 – 21:00 (34 min kvar)</div>
+          <div class="bar">
+            <div class="fill" style="width: 42%;"></div>
+            <div class="head" style="left: 42%;"></div>
+            <div class="tick" style="left: 42%;">DIREKT</div>
+          </div>
+          <div class="times">
+            <span>20:00</span>
+            <span>20:26</span>
+            <span>21:00</span>
+          </div>
+          <div class="pills">
+            <span class="pill dim">Paus</span>
+            <span class="pill dim">Från början 20:00</span>
+            <span class="pill dim">Tablå</span>
+            <span class="pill dim">Ljud & text</span>
+          </div>
+        </div>
+      </div>
+      <div class="ann">
+        <h4>Passiv bottenlist</h4>
+        <p>Visas vid kanalbyte eller tangenttryck och tonar bort efter 4 sekunder.</p>
+        <p>
+          <span class="k">Back</span> öppnar Tablån i fullskärm omedelbart.<br>
+          <span class="k">OK</span> aktiverar knappraden med fokus på första valet.<br>
+          <span class="k">←/→</span> spolar direkt i tidsaxeln.<br>
+          <span class="k">↑/↓</span> zappar kanal direkt med minnesbehållen plats.
+        </p>
+      </div>
+    </div>
+
+    <!-- Screen 2: Active Strip with Pills Focused -->
+    <h3>Skärm 2: Aktiv bottenlist med knappar</h3>
+    <div class="tvrow">
+      <div class="tv">
+        <div class="sim-video-bg"></div>
+        <div class="strip">
+          <div class="eyebrow">
+            <span>TV4 PLAY · BONDE SÖKER FRU</span>
+          </div>
+          <div class="title">S21 A4 · Nya steg och oväntade besök</div>
+          <div class="bar">
+            <div class="fill" style="width: 65%;"></div>
+            <div class="head" style="left: 65%;"></div>
+          </div>
+          <div class="times">
+            <span>12:40</span>
+            <span>-15:20</span>
+            <span>44:00</span>
+          </div>
+          <div class="pills">
+            <span class="pill focused">Paus</span>
+            <span class="pill">Från början</span>
+            <span class="pill">Hoppa över intro</span>
+            <span class="pill">Tablå</span>
+            <span class="pill">Ljud & text</span>
+          </div>
+        </div>
+      </div>
+      <div class="ann">
+        <h4>Kanonisk knapprad</h4>
+        <p>Knapparna följer en strikt prioriterad ordning. Endast relevanta knappar visas (inga inaktiva spöken).</p>
+        <p>
+          <span class="k">OK</span> kör vald knapp.<br>
+          <span class="k">↑</span> flyttar fokus till tidslinjen för finspolning.<br>
+          <span class="k">Back</span> döljer listen och återgår till ren bild.
+        </p>
+      </div>
+    </div>
+
+    <!-- Screen 3: Browser (Guide Grid) -->
+    <h3>Skärm 3: Webbläsaren · Tablån (Kanaler × Tid)</h3>
+    <div class="tvrow">
+      <div class="tv">
+        <div class="grid">
+          <div class="nav-tabs">
+            <span class="tab-item active">Tablå</span>
+            <span class="tab-item">Katalog & Sök</span>
+          </div>
+          <div class="gridhead">
+            <span class="now">NU</span>
+            <span style="font-weight:700; color:var(--fg-2);">17 OKT</span>
+            <span>20:00</span><span>20:30</span><span>21:00</span><span>21:30</span><span>22:00</span>
+          </div>
+          <div class="grow">
+            <div class="glogo">svt1</div>
+            <div class="glane">
+              <div class="gblock focused" style="flex:0 0 45%;">
+                Fråga Lund
+                <div class="prog"><i style="width:50%;"></i></div>
+              </div>
+              <div class="gblock" style="flex:0 0 53%;">Vår älskade låtskatt</div>
+            </div>
+          </div>
+          <div class="grow">
+            <div class="glogo">svt2</div>
+            <div class="glane">
+              <div class="gblock" style="flex:0 0 35%;">Frusna ögonblick</div>
+              <div class="gblock" style="flex:0 0 63%;">The Piano: Världsklass</div>
+            </div>
+          </div>
+          <div class="grow">
+            <div class="glogo">tv4</div>
+            <div class="glane">
+              <div class="gblock" style="flex:0 0 55%;">Hockeylördag: Frölunda - Skellefteå</div>
+              <div class="gblock" style="flex:0 0 43%;">Kalla fakta</div>
+            </div>
+          </div>
+          <div class="grow">
+            <div class="glogo">kanal 5</div>
+            <div class="glane">
+              <div class="gblock" style="flex:0 0 40%;">Kompani Svan</div>
+              <div class="gblock" style="flex:0 0 58%;">Över Atlanten</div>
+            </div>
+          </div>
+          <div class="gfoot">
+            <span><b>OK</b> Spela valt program</span>
+            <span><b>Back</b> Återgå till video</span>
+            <span><b>↓ botten</b> Katalog & Sök</span>
+          </div>
+        </div>
+        <div class="nowline"></div>
+      </div>
+      <div class="ann">
+        <h4>Tidsaxel och översikt</h4>
+        <p>Ersätter både Kanaler-listan och den gamla tablån. Nu-linjen visar realtid över alla kanaler.</p>
+        <p>
+          <span class="k">↑/↓</span> byter kanalrad.<br>
+          <span class="k">←/→</span> rullar i tiden för kanalen (heldag bakåt/framåt).<br>
+          <span class="k">OK</span> startar programmet omedelbart.<br>
+          <span class="k">Back</span> stänger tablån och återgår till bild direkt.
+        </p>
+      </div>
+    </div>
+
+    <!-- Screen 4: Browser (Catalogue & Search) -->
+    <h3>Skärm 4: Webbläsaren · Katalog & Sök</h3>
+    <div class="tvrow">
+      <div class="tv">
+        <div class="safe">
+          <div class="nav-tabs">
+            <span class="tab-item">Tablå</span>
+            <span class="tab-item active">Katalog & Sök</span>
+          </div>
+          <div class="cat-shelf">
+            <div class="shelf-title">Fortsätt titta</div>
+            <div class="posters-row">
+              <div class="pcard focused">
+                <div class="thumb"></div>
+                <div class="name">Bonde söker fru (S21 A4)</div>
+              </div>
+              <div class="pcard">
+                <div class="thumb"></div>
+                <div class="name">Kompani Svan (S3 A2)</div>
+              </div>
+              <div class="pcard">
+                <div class="thumb"></div>
+                <div class="name">The Piano</div>
+              </div>
+            </div>
+            <div class="shelf-title" style="margin-top:2%;">Sök i Telia Play</div>
+            <div style="background:var(--panel); border:1px solid var(--hairline); padding:0.8em; border-radius:6px; color:var(--fg-3);">
+              🔍 Sök serier, filmer, program eller skådespelare...
+            </div>
+          </div>
+          <div class="gfoot" style="margin-top:2%;">
+            <span><b>OK</b> Spela</span>
+            <span><b>↑ topp</b> Tillbaka till Tablå</span>
+            <span><b>Back</b> Återgå till video</span>
+          </div>
+        </div>
+      </div>
+      <div class="ann">
+        <h4>Stabil geometri (Regel E6)</h4>
+        <p>
+          Katalogen använder fasta 16:9-platshållare för affischer. Inga hoppande layouter och inga dolda menyer.
+        </p>
+      </div>
+    </div>
+
+    <!-- Screen 5: Universal Picker Sheet -->
+    <h3>Skärm 5: Det universella väljarbladet (Picker Sheet)</h3>
+    <div class="tvrow">
+      <div class="tv">
+        <div class="sim-video-bg"></div>
+        <div class="dim-scrim"></div>
+        <div class="picker-sheet">
+          <div class="sh-eyebrow">Alternativ & Inställningar</div>
+          <div class="sh-title">Fråga Lund</div>
+          <div class="p-row focused">
+            <span>Spela från början</span>
+            <span class="val">20:00</span>
+          </div>
+          <div class="p-row">
+            <span>Undertext</span>
+            <span class="val">Svenska för hörselskadade ›</span>
+          </div>
+          <div class="p-row">
+            <span>Ljudspår</span>
+            <span class="val">Svenska (Stereo) ›</span>
+          </div>
+          <div class="p-row">
+            <span>Bildformat</span>
+            <span class="val">Anpassa till skärm</span>
+          </div>
+          <div class="p-row">
+            <span>Min lista</span>
+            <span class="val">+ Lägg till serie</span>
+          </div>
+        </div>
+      </div>
+      <div class="ann">
+        <h4>Ett blad för alla inställningar</h4>
+        <p>
+          Ligger alltid 400 dp till höger över pågående bild eller tablå.
+          Val ändras direkt i raden med OK eller ←/→ utan att stapla fler fönster ovanpå varandra.
+        </p>
+        <p><span class="k">Back</span> stänger bladet och återställer fokus med ett enda tryck.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 4: THE INTERACTIVE SIMULATOR -->
+  <section id="interactive-demo">
+    <h2><span class="num">4</span> Interaktiv demo: Testa målarkitekturen live</h2>
+    <p>
+      Nedan körs simulatorn i realtid direkt i webbläsaren.
+      Styr med <strong>tangentbordet</strong> (piltangenter, Enter, Esc, G) eller klicka på
+      den <strong>virtuella fjärrkontrollen</strong> till höger.
+    </p>
+
+    <div class="sim-wrapper">
+      <div class="sim-header">
+        <h3>10-Foot TV Simulator (Flinga Clean Room Engine)</h3>
+        <span class="sim-badge" id="sim-state-badge">LÄGE: REN VIDEO</span>
+      </div>
+
+      <!-- Quick Scenario Jumpers -->
+      <div class="sim-controls-bar">
+        <span style="font-size:12px; color:var(--fg-3); display:flex; align-items:center; margin-right:4px;">SNABBSCENARIER:</span>
+        <button class="sim-btn" onclick="simJump('live')">1. Titta live (SVT1)</button>
+        <button class="sim-btn" onclick="simJump('strip')">2. Visa bottenlist</button>
+        <button class="sim-btn" onclick="simJump('grid')">3. Öppna Tablån</button>
+        <button class="sim-btn" onclick="simJump('catalogue')">4. Katalogen & Sök</button>
+        <button class="sim-btn" onclick="simJump('picker')">5. Ändra undertext</button>
+        <button class="sim-btn" onclick="simReset()" style="margin-left:auto; color:var(--warn);">Återställ</button>
+      </div>
+
+      <div class="sim-stage">
+        <!-- 16:9 Screen -->
+        <div class="sim-tv" id="sim-screen" tabindex="0">
+          <div class="sim-video-bg" id="sim-bg-layer"></div>
+          <div id="sim-ui-root" style="position:absolute; inset:0;"></div>
+        </div>
+
+        <!-- Simulated Remote Control -->
+        <div class="sim-remote">
+          <div class="remote-title">Fjärrkontroll</div>
+          <div class="dpad">
+            <button class="dpad-btn dpad-up" onclick="simHandleKey('ArrowUp')">▲</button>
+            <button class="dpad-btn dpad-left" onclick="simHandleKey('ArrowLeft')">◀</button>
+            <button class="dpad-btn dpad-center" onclick="simHandleKey('Enter')">OK</button>
+            <button class="dpad-btn dpad-right" onclick="simHandleKey('ArrowRight')">▶</button>
+            <button class="dpad-btn dpad-down" onclick="simHandleKey('ArrowDown')">▼</button>
+          </div>
+
+          <div class="remote-action-row">
+            <button class="rem-btn" onclick="simHandleKey('Escape')">↩ Back</button>
+            <button class="rem-btn" onclick="simHandleKey('KeyG')">⊞ Guide</button>
+          </div>
+          <div class="remote-action-row">
+            <button class="rem-btn" onclick="simHandleKey('KeyI')">ℹ List</button>
+            <button class="rem-btn" onclick="simHandleKey('KeyP')">⚙ Väljare</button>
+          </div>
+
+          <div class="remote-hints">
+            Eller använd tangentbordet:<br>
+            <kbd>▲</kbd> <kbd>▼</kbd> <kbd>◀</kbd> <kbd>▶</kbd> <kbd>Enter</kbd> <kbd>Esc</kbd> <kbd>G</kbd><br>
+            <span style="color:var(--accent); font-size:11px; font-weight:700;">💡 Tryck Esc / Back på ren bild för Tablå!</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Simulator HUD -->
+      <div class="sim-hud">
+        <div class="hud-item">
+          <span class="hud-label">Aktiv vy:</span>
+          <span class="hud-val accent" id="hud-view">VIDEO_CLEAN</span>
+        </div>
+        <div class="hud-item">
+          <span class="hud-label">Kanal:</span>
+          <span class="hud-val" id="hud-channel">SVT1 (Fråga Lund)</span>
+        </div>
+        <div class="hud-item">
+          <span class="hud-label">Fokus-element:</span>
+          <span class="hud-val" id="hud-focus">Ingen chrome (Ren video)</span>
+        </div>
+        <div class="hud-item">
+          <span class="hud-label">Antal tryck i session:</span>
+          <span class="hud-val" id="hud-presses">0</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 5: KEY MATRIX -->
+  <section id="keymap">
+    <h2><span class="num">5</span> Tangentkarta: Ortogonal och sammanhängande</h2>
+    <p>
+      Den fullständiga matrisen över samtliga knappar och deras exakta funktion på de tre ytorna.
+    </p>
+
+    <div class="table-scroll">
+      <table class="keys">
+        <thead>
+          <tr>
+            <th>Tangent</th>
+            <th>1. Ren video</th>
+            <th>2. Bottenlist aktiv</th>
+            <th>3. Webbläsare (Tablå/Katalog)</th>
+            <th>4. Väljarblad (Picker)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>↑ / ↓</td>
+            <td>Kanalbyte direkt (zap)</td>
+            <td>Växla mellan knappar och tidslinje</td>
+            <td>Navigera kanalrader / hyllor</td>
+            <td>Flytta radfokus</td>
+          </tr>
+          <tr>
+            <td>← / →</td>
+            <td>Spola tid (hoppar över gränser)</td>
+            <td>Flytta fokus mellan knappar / spola</td>
+            <td>Rulla i tiden / bläddra affischer</td>
+            <td>Ändra valt värde inline</td>
+          </tr>
+          <tr>
+            <td>OK</td>
+            <td>Visa bottenlist med knapp fokuserad</td>
+            <td>Kör vald knapp</td>
+            <td>Spela program direkt</td>
+            <td>Bekräfta / stega alternativ</td>
+          </tr>
+          <tr>
+            <td>Back</td>
+            <td><strong>Öppna Tablån (1 tryck)</strong><br><span style="font-size:12px; color:var(--fg-3);">Dubbel-Back avslutar appen</span></td>
+            <td>Dölj listen direkt till ren video</td>
+            <td>Stäng Tablån och återgå till video</td>
+            <td>Stäng väljarbladet</td>
+          </tr>
+          <tr>
+            <td>Guide / Menu</td>
+            <td>Öppna Tablån direkt</td>
+            <td>Öppna Tablån direkt</td>
+            <td>Stäng och återgå till video</td>
+            <td>Stäng väljarbladet</td>
+          </tr>
+          <tr>
+            <td>CH ±</td>
+            <td>Byt kanal direkt</td>
+            <td>Byt kanal direkt</td>
+            <td>Hoppa 5 rader i tablån</td>
+            <td>—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SECTION 6: ROADMAP & SLICES -->
+  <section id="roadmap">
+    <h2><span class="num">6</span> Genomförandeplan i tre steg</h2>
+    <p>
+      Förslaget kan införas stegvis utan att riva upp hela appen samtidigt. Varje steg kan mätas
+      och verifieras oberoende mot den befintliga testsviten och Robolectric-skärmdumparna.
+    </p>
+
+    <div class="slice-list">
+      <div class="slice-card s1">
+        <h4>Steg 1: Förena bottenlisten (Eliminera lätt/full overlay)</h4>
+        <p>
+          Ta bort det passiva bannerläget som ett separat tillstånd. OK från ren bild fokuserar första knappen direkt.
+          Vänsterpil från första knappen öppnar inte längre vänstermenyn utan spolar tid.
+          <strong>Testkriterium:</strong> Inga modala texter ("OK Visa knappar"); 1 tryck till funktion.
+        </p>
+      </div>
+
+      <div class="slice-card s2">
+        <h4>Steg 2: Det universella väljarbladet (Picker Sheet)</h4>
+        <p>
+          Slå samman <code>Alternativ</code> och <code>Ljud och text</code> till ett gemensamt 400 dp blad
+          med expanderande rader. Eliminera nästlade dialoger och städa bort stackhanteraren för blad.
+          <strong>Testkriterium:</strong> Max 3 knapptryck för att aktivera svensk undertext från ren video.
+        </p>
+      </div>
+
+      <div class="slice-card s3">
+        <h4>Steg 3: Webbläsaren i fullskärm</h4>
+        <p>
+          Kollapsa tablån och katalogen till den enhetliga vyn nådd med <code>Back</code> på ren bild.
+          Ta bort 92 dp-railen och den skjutbara panelen helt.
+          <strong>Testkriterium:</strong> Minnesförbrukning minskar; noll duplicerade kanalvyer.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div>Flinga UX-arkitektur · Fastställd målarkitektur · 2026-10-17</div>
+    <div>Referens: <code>docs/UX-MAP.md</code> · Designsystem: <code>client/design/DESIGN.md</code></div>
+  </footer>
+
+</div>
+
+<!-- =========================================================
+     SIMULATOR JAVASCRIPT ENGINE (CLEAN & PRUNED)
+     ========================================================= -->
+<script>
+(function() {
+  const state = {
+    view: 'VIDEO_CLEAN', // VIDEO_CLEAN, VIDEO_STRIP, BROWSER_GRID, BROWSER_CATALOGUE, PICKER
+    channelIdx: 0,
+    timeOffsetMin: 0,
+    focusedPillIdx: 0,
+    gridRowIdx: 0,
+    gridColIdx: 1, // 0=past, 1=now, 2=next
+    catColIdx: 0,
+    pickerRowIdx: 0,
+    pressCount: 0,
+    stripTimer: null,
+    subtitles: 'Av',
+    audioTrack: 'Svenska (Stereo)',
+    aspectRatio: 'Anpassa till skärm',
+    channels: [
+      { id: 'svt1', name: 'SVT1', now: 'Fråga Lund', cat: 'Kultur & Vetenskap', past: 'Rapport', next: 'Vår älskade låtskatt', time: '20:00 - 21:00' },
+      { id: 'svt2', name: 'SVT2', now: 'Frusna ögonblick', cat: 'Dokumentär', past: 'Kulturnyheterna', next: 'The Piano', time: '19:30 - 20:30' },
+      { id: 'tv3',  name: 'TV3',  now: 'Stugfixarna Norge', cat: 'Livsstil', past: 'Frusna vägar', next: 'Moonfall', time: '20:00 - 21:00' },
+      { id: 'tv4',  name: 'TV4',  now: 'Hockeylördag: Frölunda', cat: 'Sport', past: 'Nyheterna', next: 'Kalla fakta', time: '19:00 - 21:30' },
+      { id: 'kanal5', name: 'Kanal 5', now: 'Kompani Svan', cat: 'Underhållning', past: 'Wahlgrens värld', next: 'Över Atlanten', time: '20:00 - 21:00' }
+    ],
+    pills: ['Paus', 'Från början', 'Tablå', 'Ljud & text', 'Mer'],
+    catalogue: [
+      { title: 'Bonde söker fru', meta: 'S21 A4 · Fortsätt' },
+      { title: 'Kompani Svan', meta: 'S3 A2 · Fortsätt' },
+      { title: 'The Piano', meta: 'S1 A1 · Fortsätt' },
+      { title: 'Bäst i test', meta: 'Underhållning' }
+    ],
+    pickerOptions: [
+      { id: 'startover', label: 'Spela från början', getVal: () => '20:00' },
+      { id: 'sub', label: 'Undertext', getVal: () => state.subtitles },
+      { id: 'audio', label: 'Ljudspår', getVal: () => state.audioTrack },
+      { id: 'aspect', label: 'Bildformat', getVal: () => state.aspectRatio },
+      { id: 'mylist', label: 'Min lista', getVal: () => '+ Lägg till serie' }
+    ]
+  };
+
+  const uiRoot = document.getElementById('sim-ui-root');
+  const bgLayer = document.getElementById('sim-bg-layer');
+  const stateBadge = document.getElementById('sim-state-badge');
+  const hudView = document.getElementById('hud-view');
+  const hudChannel = document.getElementById('hud-channel');
+  const hudFocus = document.getElementById('hud-focus');
+  const hudPresses = document.getElementById('hud-presses');
+
+  function render() {
+    const curCh = state.channels[state.channelIdx];
+
+    const bgGradients = [
+      'radial-gradient(circle at 70% 30%, #201a35 0%, #0c0a18 70%, #05040a 100%)',
+      'radial-gradient(circle at 60% 40%, #152233 0%, #080f1a 70%, #03060c 100%)',
+      'radial-gradient(circle at 75% 25%, #2a1b1b 0%, #140b0b 70%, #080404 100%)',
+      'radial-gradient(circle at 65% 35%, #18281b 0%, #0a140c 70%, #040805 100%)',
+      'radial-gradient(circle at 70% 30%, #281a30 0%, #120a17 70%, #060309 100%)'
+    ];
+    bgLayer.style.background = bgGradients[state.channelIdx % bgGradients.length];
+
+    uiRoot.innerHTML = '';
+
+    switch(state.view) {
+      case 'VIDEO_CLEAN':
+        hudFocus.textContent = 'Ingen chrome (Ren video)';
+        break;
+      case 'VIDEO_STRIP':
+        renderVideoStrip(curCh);
+        break;
+      case 'BROWSER_GRID':
+        renderBrowserGrid(curCh);
+        break;
+      case 'BROWSER_CATALOGUE':
+        renderBrowserCatalogue();
+        break;
+      case 'PICKER':
+        renderPicker(curCh);
+        break;
+    }
+
+    stateBadge.textContent = 'LÄGE: ' + state.view.replace('_', ' ');
+    hudView.textContent = state.view;
+    hudChannel.textContent = curCh.name + ' (' + curCh.now + ')';
+    hudPresses.textContent = state.pressCount;
+  }
+
+  function renderVideoStrip(curCh) {
+    const pillList = state.pills.map((pill, idx) => {
+      const isFocused = idx === state.focusedPillIdx;
+      return `<span class="pill ${isFocused ? 'focused' : ''}">${pill}</span>`;
+    }).join('');
+
+    hudFocus.textContent = 'Knapp: ' + state.pills[state.focusedPillIdx];
+
+    uiRoot.innerHTML = `
+      <div class="strip">
+        <div class="eyebrow">
+          <span>${curCh.name}</span>
+          <span class="channel-tag">${state.timeOffsetMin === 0 ? 'DIREKT' : 'TIDSFÖRSKJUTEN'}</span>
+        </div>
+        <div class="title">${curCh.now}</div>
+        <div class="meta">${curCh.cat} · ${curCh.time}</div>
+        <div class="bar">
+          <div class="fill" style="width: 45%;"></div>
+          <div class="head" style="left: 45%;"></div>
+          ${state.timeOffsetMin === 0 ? '<div class="tick" style="left: 45%;">DIREKT</div>' : ''}
+        </div>
+        <div class="times">
+          <span>20:00</span>
+          <span>${state.timeOffsetMin === 0 ? 'Nu' : state.timeOffsetMin + ' min'}</span>
+          <span>21:00</span>
+        </div>
+        <div class="pills">
+          ${pillList}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderBrowserGrid(curCh) {
+    hudFocus.textContent = `Tablå: ${state.channels[state.gridRowIdx].name} rad`;
+
+    let rowsHtml = '';
+    state.channels.forEach((ch, rIdx) => {
+      const isSelectedRow = rIdx === state.gridRowIdx;
+      rowsHtml += `
+        <div class="grow">
+          <div class="glogo" style="${isSelectedRow ? 'color:var(--accent); font-weight:800;' : ''}">${ch.name}</div>
+          <div class="glane">
+            <div class="gblock ${isSelectedRow && state.gridColIdx === 0 ? 'focused' : ''}" style="flex:0 0 28%;">
+              ${ch.past}
+            </div>
+            <div class="gblock ${isSelectedRow && state.gridColIdx === 1 ? 'focused' : ''}" style="flex:0 0 44%;">
+              ${ch.now}
+              <div class="prog"><i style="width:50%;"></i></div>
+            </div>
+            <div class="gblock ${isSelectedRow && state.gridColIdx === 2 ? 'focused' : ''}" style="flex:0 0 35%;">
+              ${ch.next}
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    uiRoot.innerHTML = `
+      <div class="grid" style="background:rgba(11,11,16,0.92); padding:4%;">
+        <div class="nav-tabs">
+          <span class="tab-item active">Tablå</span>
+          <span class="tab-item" onclick="simJump('catalogue')" style="cursor:pointer;">Katalog & Sök</span>
+        </div>
+        <div class="gridhead">
+          <span class="now">NU</span>
+          <span style="font-weight:700; color:var(--fg-2);">IDAG 17 OKT</span>
+          <span>19:30</span><span>20:00</span><span>20:30</span><span>21:00</span>
+        </div>
+        ${rowsHtml}
+        <div class="gfoot">
+          <span><b>OK</b> Spela valt program</span>
+          <span><b>Back</b> Återgå till video</span>
+          <span><b>↓ botten</b> Katalog & Sök</span>
+        </div>
+      </div>
+      <div class="nowline" style="left:38%;"></div>
+    `;
+  }
+
+  function renderBrowserCatalogue() {
+    hudFocus.textContent = `Katalog: ${state.catalogue[state.catColIdx].title}`;
+    const cards = state.catalogue.map((item, idx) => {
+      const isFocused = idx === state.catColIdx;
+      return `
+        <div class="pcard ${isFocused ? 'focused' : ''}">
+          <div class="thumb"></div>
+          <div class="name">${item.title}</div>
+          <div style="font-size:0.9em; opacity:0.7;">${item.meta}</div>
+        </div>
+      `;
+    }).join('');
+
+    uiRoot.innerHTML = `
+      <div class="safe" style="background:rgba(11,11,16,0.96); padding:4%;">
+        <div class="nav-tabs">
+          <span class="tab-item" onclick="simJump('grid')" style="cursor:pointer;">Tablå</span>
+          <span class="tab-item active">Katalog & Sök</span>
+        </div>
+        <div class="cat-shelf">
+          <div class="shelf-title">Fortsätt titta</div>
+          <div class="posters-row">
+            ${cards}
+          </div>
+          <div class="shelf-title" style="margin-top:2%;">Sök i hela biblioteket</div>
+          <div style="background:var(--panel); border:1px solid var(--hairline); padding:0.8em; border-radius:6px; color:var(--fg-3);">
+            🔍 Skriv film, serie eller program med fjärrkontrollen...
+          </div>
+        </div>
+        <div class="gfoot" style="margin-top:auto;">
+          <span><b>OK</b> Spela</span>
+          <span><b>↑ topp</b> Tillbaka till Tablå</span>
+          <span><b>Back</b> Återgå till video</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderPicker(curCh) {
+    hudFocus.textContent = `Väljarblad: ${state.pickerOptions[state.pickerRowIdx].label}`;
+    const rows = state.pickerOptions.map((opt, idx) => {
+      const isFocused = idx === state.pickerRowIdx;
+      return `
+        <div class="p-row ${isFocused ? 'focused' : ''}">
+          <span>${opt.label}</span>
+          <span class="val">${opt.getVal()}</span>
+        </div>
+      `;
+    }).join('');
+
+    uiRoot.innerHTML = `
+      <div class="dim-scrim"></div>
+      <div class="picker-sheet">
+        <div class="sh-eyebrow">Alternativ & Inställningar</div>
+        <div class="sh-title">${curCh.now}</div>
+        ${rows}
+      </div>
+    `;
+  }
+
+  window.simHandleKey = function(key) {
+    state.pressCount++;
+
+    if (state.stripTimer) {
+      clearTimeout(state.stripTimer);
+      state.stripTimer = null;
+    }
+
+    switch(state.view) {
+      case 'VIDEO_CLEAN':
+        handleKeyVideoClean(key);
+        break;
+      case 'VIDEO_STRIP':
+        handleKeyVideoStrip(key);
+        break;
+      case 'BROWSER_GRID':
+        handleKeyBrowserGrid(key);
+        break;
+      case 'BROWSER_CATALOGUE':
+        handleKeyBrowserCatalogue(key);
+        break;
+      case 'PICKER':
+        handleKeyPicker(key);
+        break;
+    }
+
+    render();
+  };
+
+  function handleKeyVideoClean(key) {
+    if (key === 'ArrowUp') {
+      state.channelIdx = (state.channelIdx + 1) % state.channels.length;
+      showStripAutoFade();
+    } else if (key === 'ArrowDown') {
+      state.channelIdx = (state.channelIdx - 1 + state.channels.length) % state.channels.length;
+      showStripAutoFade();
+    } else if (key === 'Enter' || key === 'KeyI') {
+      state.view = 'VIDEO_STRIP';
+      state.focusedPillIdx = 0;
+    } else if (key === 'KeyG' || key === 'KeyM' || key === 'Escape') {
+      state.view = 'BROWSER_GRID';
+    } else if (key === 'KeyP') {
+      state.view = 'PICKER';
+      state.pickerRowIdx = 0;
+    } else if (key === 'ArrowLeft') {
+      state.timeOffsetMin -= 5;
+      showStripAutoFade();
+    } else if (key === 'ArrowRight') {
+      if (state.timeOffsetMin < 0) state.timeOffsetMin += 5;
+      showStripAutoFade();
+    }
+  }
+
+  function handleKeyVideoStrip(key) {
+    if (key === 'ArrowLeft') {
+      if (state.focusedPillIdx > 0) {
+        state.focusedPillIdx--;
+      } else {
+        state.timeOffsetMin -= 5;
+      }
+    } else if (key === 'ArrowRight') {
+      if (state.focusedPillIdx < state.pills.length - 1) {
+        state.focusedPillIdx++;
+      } else {
+        if (state.timeOffsetMin < 0) state.timeOffsetMin += 5;
+      }
+    } else if (key === 'Enter') {
+      const selected = state.pills[state.focusedPillIdx];
+      if (selected === 'Tablå') {
+        state.view = 'BROWSER_GRID';
+      } else if (selected === 'Ljud & text' || selected === 'Mer') {
+        state.view = 'PICKER';
+        state.pickerRowIdx = 1;
+      } else if (selected === 'Från början') {
+        state.timeOffsetMin = -26;
+        state.view = 'VIDEO_CLEAN';
+      } else {
+        state.view = 'VIDEO_CLEAN';
+      }
+    } else if (key === 'Escape') {
+      state.view = 'VIDEO_CLEAN';
+    } else if (key === 'KeyG' || key === 'KeyM') {
+      state.view = 'BROWSER_GRID';
+    } else if (key === 'KeyP') {
+      state.view = 'PICKER';
+    }
+  }
+
+  function handleKeyBrowserGrid(key) {
+    if (key === 'ArrowUp') {
+      if (state.gridRowIdx > 0) {
+        state.gridRowIdx--;
+      }
+    } else if (key === 'ArrowDown') {
+      if (state.gridRowIdx < state.channels.length - 1) {
+        state.gridRowIdx++;
+      } else {
+        state.view = 'BROWSER_CATALOGUE';
+        state.catColIdx = 0;
+      }
+    } else if (key === 'ArrowLeft') {
+      if (state.gridColIdx > 0) state.gridColIdx--;
+    } else if (key === 'ArrowRight') {
+      if (state.gridColIdx < 2) state.gridColIdx++;
+    } else if (key === 'Enter') {
+      state.channelIdx = state.gridRowIdx;
+      if (state.gridColIdx === 0) {
+        state.timeOffsetMin = -45;
+      } else if (state.gridColIdx === 1) {
+        state.timeOffsetMin = 0;
+      }
+      state.view = 'VIDEO_CLEAN';
+    } else if (key === 'Escape' || key === 'KeyG') {
+      state.view = 'VIDEO_CLEAN';
+    }
+  }
+
+  function handleKeyBrowserCatalogue(key) {
+    if (key === 'ArrowLeft') {
+      if (state.catColIdx > 0) state.catColIdx--;
+    } else if (key === 'ArrowRight') {
+      if (state.catColIdx < state.catalogue.length - 1) state.catColIdx++;
+    } else if (key === 'ArrowUp') {
+      state.view = 'BROWSER_GRID';
+      state.gridRowIdx = state.channels.length - 1;
+    } else if (key === 'Enter' || key === 'Escape' || key === 'KeyG') {
+      state.view = 'VIDEO_CLEAN';
+    }
+  }
+
+  function handleKeyPicker(key) {
+    if (key === 'ArrowUp') {
+      if (state.pickerRowIdx > 0) state.pickerRowIdx--;
+    } else if (key === 'ArrowDown') {
+      if (state.pickerRowIdx < state.pickerOptions.length - 1) state.pickerRowIdx++;
+    } else if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'Enter') {
+      togglePickerOption(state.pickerRowIdx);
+    } else if (key === 'Escape' || key === 'KeyP') {
+      state.view = 'VIDEO_CLEAN';
+    }
+  }
+
+  function togglePickerOption(idx) {
+    if (idx === 1) {
+      state.subtitles = state.subtitles === 'Av' ? 'Svenska' : (state.subtitles === 'Svenska' ? 'Svenska SDH' : 'Av');
+    } else if (idx === 2) {
+      state.audioTrack = state.audioTrack.startsWith('Svenska') ? 'Original (Engelska)' : 'Svenska (Stereo)';
+    } else if (idx === 3) {
+      state.aspectRatio = state.aspectRatio === 'Anpassa till skärm' ? 'Hela bilden (16:9)' : 'Anpassa till skärm';
+    } else if (idx === 0) {
+      state.timeOffsetMin = -26;
+      state.view = 'VIDEO_CLEAN';
+    }
+  }
+
+  function showStripAutoFade() {
+    state.view = 'VIDEO_STRIP';
+    state.focusedPillIdx = 0;
+    state.stripTimer = setTimeout(() => {
+      if (state.view === 'VIDEO_STRIP') {
+        state.view = 'VIDEO_CLEAN';
+        render();
+      }
+    }, 4000);
+  }
+
+  window.simJump = function(scenario) {
+    state.pressCount++;
+    if (scenario === 'live') {
+      state.view = 'VIDEO_CLEAN';
+      state.channelIdx = 0;
+      state.timeOffsetMin = 0;
+    } else if (scenario === 'strip') {
+      state.view = 'VIDEO_STRIP';
+      state.focusedPillIdx = 0;
+    } else if (scenario === 'grid') {
+      state.view = 'BROWSER_GRID';
+      state.gridRowIdx = 0;
+      state.gridColIdx = 1;
+    } else if (scenario === 'catalogue') {
+      state.view = 'BROWSER_CATALOGUE';
+      state.catColIdx = 0;
+    } else if (scenario === 'picker') {
+      state.view = 'PICKER';
+      state.pickerRowIdx = 1;
+    }
+    render();
+  };
+
+  window.simReset = function() {
+    state.view = 'VIDEO_CLEAN';
+    state.channelIdx = 0;
+    state.timeOffsetMin = 0;
+    state.focusedPillIdx = 0;
+    state.gridRowIdx = 0;
+    state.gridColIdx = 1;
+    state.catColIdx = 0;
+    state.pickerRowIdx = 0;
+    state.pressCount = 0;
+    state.subtitles = 'Av';
+    render();
+  };
+
+  window.addEventListener('keydown', function(e) {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape'].includes(e.code) ||
+        e.code === 'KeyG' || e.code === 'KeyM' || e.code === 'KeyI' || e.code === 'KeyP') {
+      e.preventDefault();
+      simHandleKey(e.code);
+    }
+  });
+
+  render();
+})();
+</script>
+
+</body>
+</html>
