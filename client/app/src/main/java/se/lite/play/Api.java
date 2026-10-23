@@ -308,8 +308,9 @@ final class Api {
 
     private JSONObject graphql(String op, String query, JSONObject vars) throws Exception {
         String body = new JSONObject().put("operationName", op).put("query", query).put("variables", vars).toString();
-        Http.Response r = Http.request("POST", GRAPHQL, graphqlHeaders(), body, "application/json");
-        if (r.code == 401 && refresh()) r = Http.request("POST", GRAPHQL, graphqlHeaders(), body, "application/json");
+        refreshIfExpiring(); // a token about to expire is replaced first, not after a 401 round trip (E9)
+        Http.Response r = Http.bounded("POST", GRAPHQL, graphqlHeaders(), body, "application/json");
+        if (r.code == 401 && refresh()) r = Http.bounded("POST", GRAPHQL, graphqlHeaders(), body, "application/json");
         if (!r.ok()) throw new Exception(op + " HTTP " + r.code + ": " + trim(r.body));
         JSONObject json = new JSONObject(r.body);
         if (json.has("errors") && json.optJSONObject("data") == null) {
@@ -390,7 +391,7 @@ final class Api {
             h.put("tv-client-name", CLIENT_NAME);
             h.put("Accept", "application/json");
             h.put("X-Configuration", "WEB");
-            Http.Response r = Http.request("POST", LOGIN_BASE + "rest/v1/login/refresh", h, body.toString(),
+            Http.Response r = Http.bounded("POST", LOGIN_BASE + "rest/v1/login/refresh", h, body.toString(),
                     "application/json");
             if (!r.ok()) {
                 android.util.Log.w("TeliaLite", "refresh HTTP " + r.code + " " + trim(r.body));
@@ -404,10 +405,61 @@ final class Api {
     }
 
     private void saveSession(JSONObject s) throws Exception {
+        String access = s.getString("accessToken");
+        long until = validUntil(s.optString("validTo", ""), access);
         prefs.edit()
-                .putString("accessToken", s.getString("accessToken"))
+                .putString("accessToken", access)
                 .putString("refreshToken", s.getString("refreshToken"))
+                .putLong("validTo", until)
                 .apply();
+    }
+
+    /** A token is replaced this long before it expires (E9: never a request with a token that is about to fail). */
+    static final long REFRESH_AHEAD_MS = 5 * 60_000L;
+
+    /**
+     * Refreshes the session when its access token expires within {@link #REFRESH_AHEAD_MS}. The expiry is the login
+     * answer's {@code validTo} (the official app's SessionToken), else the token's own {@code exp} when it is a JWT;
+     * when neither is known nothing happens here and a 401 still refreshes and retries once. Cheap: one read of the
+     * preferences. Returns false only when a refresh was due and failed.
+     */
+    boolean refreshIfExpiring() {
+        long until = prefs.getLong("validTo", 0);
+        if (until <= 0 || Clock.now() < until - REFRESH_AHEAD_MS) return true;
+        return refresh();
+    }
+
+    /**
+     * When a session token stops being valid, epoch ms, from the login answer's {@code validTo} (an ISO 8601 time,
+     * or epoch seconds or ms) or the JWT's {@code exp}; 0 when unknown.
+     */
+    static long validUntil(String validTo, String accessToken) {
+        String v = validTo == null ? "" : validTo.trim();
+        if (!v.isEmpty()) {
+            if (v.matches("\\d+")) {
+                long n = Long.parseLong(v);
+                return n < 100_000_000_000L ? n * 1000 : n;
+            }
+            for (String f : new String[] {"yyyy-MM-dd'T'HH:mm:ss.SSSXXX", "yyyy-MM-dd'T'HH:mm:ssXXX"}) {
+                try {
+                    java.text.SimpleDateFormat d = new java.text.SimpleDateFormat(f, java.util.Locale.ROOT);
+                    d.setLenient(false);
+                    return d.parse(v).getTime();
+                } catch (Exception ignored) {
+                    // the next form
+                }
+            }
+        }
+        try {
+            String[] parts = accessToken == null ? new String[0] : accessToken.split("\\.");
+            if (parts.length != 3) return 0;
+            byte[] json = android.util.Base64.decode(parts[1], android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP
+                    | android.util.Base64.NO_PADDING);
+            long exp = new JSONObject(new String(json, java.nio.charset.StandardCharsets.UTF_8)).optLong("exp", 0);
+            return exp > 0 ? exp * 1000 : 0;
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     // ---- Helpers --------------------------------------------------------------------------
@@ -926,7 +978,7 @@ final class Api {
                 .put("duration", Math.max(0, durationMs));
         Map<String, String> h = authHeaders();
         h.put("Client", "telia-play-android"); // wireClient of the app's prod configuration (p148gm/a.java)
-        Http.Response r = Http.request("POST", TRACKING_BASE + "event", h, body.toString(), "application/json; charset=utf-8");
+        Http.Response r = Http.bounded("POST", TRACKING_BASE + "event", h, body.toString(), "application/json; charset=utf-8");
         if (!r.ok()) throw new Exception("tracking HTTP " + r.code);
     }
 
@@ -943,7 +995,7 @@ final class Api {
         h.put("tv-client-boot-id", bootId);
         h.put("videoId", p.videoId);
         h.put("videoIdType", p.videoIdType);
-        Http.request("DELETE", url, h, null, null);
+        Http.bounded("DELETE", url, h, null, null);
     }
 
     /** The URL-decoded `source` of a logo variant, or null (the name is drawn in the slot instead). */
@@ -975,7 +1027,7 @@ final class Api {
     }
 
     void logout() {
-        prefs.edit().remove("accessToken").remove("refreshToken").apply();
+        prefs.edit().remove("accessToken").remove("refreshToken").remove("validTo").apply();
     }
 
     private static JSONObject optPath(JSONObject o, String... keys) {
