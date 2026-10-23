@@ -280,13 +280,20 @@ Play/Pause = the Paus pill: pause/play on any title, and on live when it can be 
 | Nästa avsnitt | 10 s countdown; no countdown (waits for OK) after 90 min without a key |
 | Progress to Telia | on pause, on leaving the title, on leaving the app, and every 60 s while playing (or the ticket's `progressInterval` if longer) |
 | Fortsätt titta / Min lista refresh | at start, and when Min lista opens if older than 60 s |
+| Idle reset (U15) | 60 min without a key, a media-session command, a link or voice (`Idle.RESET_AFTER_MS`): every surface closes, the next Tablå opens on now, a paused or failed picture goes to the last live channel live, the data is fetched again. A film, episode, catch-up or delayed channel that plays full screen never counts as idle; a surface over it only closes. An hour or more in the background: back on live |
+| Progress bars (U16) | redrawn when the fill moves one pixel and at the slot's end, never past 100 %; at the end the next programme takes over at once |
+| Data refresh (E9) | now/next at every programme boundary (+5 s) and at least every 15 min; everything on resume after 2 min away, when the network returns, after the idle reset; a guide after 1 h (shown meanwhile); every query fails after 12 s; a failed guide row retries after 2 s and 10 s; the token 5 min before it expires |
 
 ### 3.4 Zero-wait rules
 
 - **Cold start:** draw the last channel's banner from disk cache (channel list + now/next, stale up to
   24 h) and tune the last channel before refreshing anything. Refresh now/next in the background.
 - **Now/next:** refresh at every programme boundary (earliest `endMs` among all channels, +5 s) and on
-  resume, not on a fixed 5 min timer. NU must never show a programme that has ended.
+  resume, not on a fixed 5 min timer. NU must never show a programme that has ended. (Built 2026-10-23, U16:
+  until the new pair lands, the next programme of the old pair takes over at the slot's end.)
+- **Stale while revalidate (E9):** data on screen is never replaced by `Laddar …`. A guide of any age is drawn at
+  once and fetched again behind it when it is older than an hour; a row shows `Laddar …` only when nothing was
+  ever fetched for it, and a failure there says `Kunde inte hämta listan · OK Försök igen` at once.
 - **Guide:** after a channel has played 2 s, prefetch its guide; after 5 s, prefetch ±1 channels. Keep
   guides in an LRU of 8 channels, valid until midnight or for 30 min for the NU part.
 - **Tickets:** if the API allows reuse (verify TTL), prefetch the playback ticket of ±1 channels and the
@@ -531,6 +538,7 @@ All strings exact. Never show exception text or error-code names to the user; lo
 | Loading a list | one dim row | `Laddar …` |
 | Empty list | one dim row | `Inget att visa här just nu` |
 | Load failed | one row, focusable | `Kunde inte hämta listan` · secondary `OK Försök igen` |
+| A Tablå row whose guide failed (E9) | the row's one block, footer `OK Försök igen` | `Kunde inte hämta listan · OK Försök igen` (OK fetches it again; it is also tried after 2 s and 10 s and when Tablå opens) |
 | Search < 2 chars | note row in the list column, below any completions | `Skriv minst två bokstäver för att söka` |
 | No hits | one note row | `Inga träffar för ”bron”. Prova en del av titeln.` |
 | No recent searches | one note row | `Inga tidigare sökningar. Skriv med tangentbordet till vänster.` |
@@ -1030,7 +1038,10 @@ shows one quiet line, `OK Öppna tablå`. Kanaler stays the fast list for zappin
   stay at the top). Back closes it to the video and never leaves the app from here. ← at the first column (the first
   programme of the row, or one starting 6 h back, or a row without data) hands over to the rail on Tablå (U10). The grid
   scrolls in time through the whole guide history the fetch returns (24 h back) and ahead as far as any loaded guide goes
-  (at least 6 h), so earlier catch-up stays reachable. A row waits as one `Laddar …` block and, when its guide is empty or failed, shows `Tablå saknas`.
+  (at least 6 h), so earlier catch-up stays reachable. A row waits as one `Laddar …` block only while nothing was ever
+  fetched for it; when its guide is empty it shows `Tablå saknas`, when the fetch failed `Kunde inte hämta listan · OK
+  Försök igen` (OK fetches it again, E9). A guide older than an hour stays drawn while it is fetched again. The now-line
+  and the lane of the programme on air move on their own, a pixel at a time, and hand over at the programme's end (U16).
 - *Data.* One guide fetch per channel, cached (`Api.guide`, `guideCache`): the rows on screen and three either
   side are asked for, nearest the focus first, at most two in flight on the one I/O thread (the 80/min limit analog); no
   request per block, no images beyond the logos (F13, `Logos` as ever).

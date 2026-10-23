@@ -115,6 +115,14 @@ public final class MainActivity extends Activity {
     private final ExecutorService io = new java.util.concurrent.ThreadPoolExecutor(
             1, 1, 0L, java.util.concurrent.TimeUnit.MILLISECONDS,
             new java.util.concurrent.LinkedBlockingQueue<>(), new java.util.concurrent.ThreadPoolExecutor.DiscardPolicy());
+    /**
+     * The data the surfaces read in the background: the channels' guides and the now/next pair (E9, E10). Two threads of
+     * their own, so a slow guide never waits behind a ticket and a ticket (the zap, on {@link #io}) never waits behind
+     * a guide; every request on it is bounded ({@link Http#bounded}).
+     */
+    private final ExecutorService net = new java.util.concurrent.ThreadPoolExecutor(
+            2, 2, 0L, java.util.concurrent.TimeUnit.MILLISECONDS,
+            new java.util.concurrent.LinkedBlockingQueue<>(), new java.util.concurrent.ThreadPoolExecutor.DiscardPolicy());
     private final Handler ui = new Handler(Looper.getMainLooper());
     /** The surfaces of the current section (root, then at most one detail; a sheet may sit on top). */
     private ArrayDeque<Screen> stack = new ArrayDeque<>();
@@ -474,44 +482,54 @@ public final class MainActivity extends Activity {
         library.load(); // a few kB: the menu draws Fortsätt titta from it before the server answers
         watchNext = new WatchNext(watchNextStore != null ? watchNextStore : new WatchNext.ProviderStore(this));
         watchNextAnchor = Clock.now();
+        // Every command of the system's media session (a phone, the Assistant, a remote's media keys routed there) is a
+        // playback action: it restarts the idle hour (U15) like a key.
         session = new SessionBridge(this, ui, new SessionBridge.Controls() {
             @Override
             public void play() {
+                userActivity();
                 if (paused) togglePause();
             }
 
             @Override
             public void pause() {
+                userActivity();
                 if (!paused) togglePause();
             }
 
             @Override
             public void seekTo(long positionMs) {
+                userActivity();
                 if (player != null) scrub(positionMs - player.getCurrentPosition());
             }
 
             @Override
             public void fastForward() {
+                userActivity();
                 scrub(SEEK_MS);
             }
 
             @Override
             public void rewind() {
+                userActivity();
                 scrub(-SEEK_MS);
             }
 
             @Override
             public void next() {
+                userActivity();
                 Api.Asset n = nextEpisode(playingMedia);
                 if (n != null && n.playable != null) playNextEpisode(n);
             }
 
             @Override
             public void previous() {
+                userActivity();
                 if (playingLive || playingStartOver) restartCurrentProgramme();
                 else restartMedia();
             }
         });
+        watchNetwork();
         syncWatchNext();
         loadRecent();
         io.execute(this::loadTitles);
@@ -537,6 +555,7 @@ public final class MainActivity extends Activity {
         DeepLink link = DeepLink.parse(intent.getData());
         VoiceSearch.Request voice = VoiceSearch.parse(intent);
         if (link == null && voice == null) return;
+        userActivity(); // a link or a voice request is the viewer asking for something (U15)
         if (channels.isEmpty()) { // start() is still loading them: it runs the request after the first tune
             pendingLink = link;
             pendingVoice = voice;
@@ -875,8 +894,9 @@ public final class MainActivity extends Activity {
                 pendingVoice = null;
                 if (l != null && l.kind != DeepLink.CHANNEL) route(l);
                 else if (v != null) search(v);
+                nowNextAtMs = Clock.now();
+                scheduleNowNext();
             });
-            ui.postDelayed(this::scheduleNowNext, 5 * 60_000);
         } catch (Exception e) {
             Log.w(TAG, "start", e);
             startFailed = true;
@@ -890,15 +910,105 @@ public final class MainActivity extends Activity {
         io.execute(this::start);
     }
 
+    // ---- Fresh data (E9) and the programme boundaries (U16) ---------------------------------------------
+    //
+    // The now/next pair of every channel is fetched again at the earliest end of a programme on air (+5 s), at
+    // least every 15 minutes, on resume, when the network returns and after an idle reset (UX.md 3.4); it was a fixed
+    // 5-minute timer, so for up to five minutes after a programme ended the banner and the cards showed it at 100 %.
+    // At each boundary the surfaces hand over at once from what is known (the next programme of the pair, or the
+    // guide), before the new pair arrives.
+
+    /** When the now/next pair last arrived (epoch ms); 0 before the first. */
+    private long nowNextAtMs;
+    private boolean nowNextLoading;
+    /** Failures in a row of the now/next fetch: the retry backs off (5 s, 15 s, 45 s, ... at most 5 min). */
+    private int nowNextFailures;
+    private final Runnable nowNextRun = this::refreshNowNext;
+    private final Runnable boundaryRun = this::programmeBoundary;
+
+    /** Plans the next now/next fetch and the next boundary from the pair as it stands. */
     private void scheduleNowNext() {
-        io.execute(() -> {
+        ui.removeCallbacks(nowNextRun);
+        ui.removeCallbacks(boundaryRun);
+        long now = Clock.now();
+        long at = nowNextFailures > 0
+                ? now + Math.min(5 * 60_000L, 5_000L * (long) Math.pow(3, Math.min(5, nowNextFailures - 1)))
+                : Schedule.nextRefreshAt(channels, now);
+        ui.postDelayed(nowNextRun, Math.max(1_000, at - now));
+        long b = Schedule.nextBoundary(channels, now);
+        if (b > now) ui.postDelayed(boundaryRun, b - now);
+    }
+
+    /** Fetches the now/next pair in the background; the surfaces follow when it lands. */
+    private void refreshNowNext() {
+        if (channels.isEmpty() || nowNextLoading) return;
+        nowNextLoading = true;
+        List<Api.Channel> chs = channels;
+        net.execute(() -> {
+            boolean ok;
             try {
-                api.loadNowNext(channels);
+                api.loadNowNext(chs);
+                ok = true;
             } catch (Exception e) {
                 Log.w(TAG, "now/next", e);
+                ok = false;
             }
+            boolean got = ok;
+            ui.post(() -> {
+                nowNextLoading = false;
+                nowNextFailures = got ? 0 : nowNextFailures + 1;
+                if (got) {
+                    nowNextAtMs = Clock.now();
+                    programmeBoundary();
+                }
+                scheduleNowNext();
+            });
         });
-        ui.postDelayed(this::scheduleNowNext, 5 * 60_000);
+    }
+
+    /**
+     * A programme on some channel has ended (or the pair arrived): what shows a programme on air follows at once, the
+     * strip on live, the cards of the catalogue, the grid (it redraws itself on time). A pair that no longer knows what
+     * is on is fetched again.
+     */
+    private void programmeBoundary() {
+        long now = Clock.now();
+        boolean stale = false;
+        for (Api.Channel c : channels) stale |= Schedule.stale(c, now);
+        if (stale && !nowNextLoading && now - nowNextAtMs > 30_000) refreshNowNext();
+        if (osd.getVisibility() == View.VISIBLE && "channel".equals(osd.modeName()) && osdChannel != null
+                && cursorMs == C.TIME_UNSET && !tuneFailed) {
+            showChannelFrame(osdChannel); // the strip hands over to the next programme, never 100 % of the old one
+        }
+        if (catalogueOpen) rebuildCatalogue();
+        if (gridOpen) grid.invalidate();
+        Api.Channel playing = boundaryChannel();
+        if (playing != null && !guideFresh(playing.id)) ensureGuide(playing);
+        if (!nowNextLoading) {
+            ui.removeCallbacks(boundaryRun);
+            long b = Schedule.nextBoundary(channels, now);
+            if (b > now) ui.postDelayed(boundaryRun, b - now);
+        }
+    }
+
+    /**
+     * Everything a surface reads, fetched again behind what is on screen (E9): the now/next pair, the playing channel's
+     * guide and the rows around it (so the first Tablå after a long idle opens on fresh data), Fortsätt titta and Min
+     * lista, and the session token when it is about to expire. Nothing on screen is replaced by a loading state.
+     */
+    private void refreshData(String why) {
+        if (channels.isEmpty()) return;
+        Log.i(TAG, "refresh data: " + why);
+        nowNextFailures = 0;
+        refreshNowNext();
+        net.execute(api::refreshIfExpiring);
+        Api.Channel playing = boundaryChannel();
+        if (playing != null) ensureGuide(playing);
+        int row = playingChannel();
+        for (int d = 1; d <= GRID_MARGIN_ROWS; d++) { // the rows the grid opens on: warm before it is opened
+            for (int r : new int[] {row - d, row + d}) if (r >= 0 && r < channels.size()) ensureGuide(channels.get(r));
+        }
+        refreshLibrary(false);
     }
 
     /** Device-code login. An expired code is replaced by a new one without asking (UX.md 6). */
@@ -1035,7 +1145,7 @@ public final class MainActivity extends Activity {
             } catch (Exception e) {
                 Log.w(TAG, "current " + ch.name, e);
             }
-            if (p == null && cachedGuide(ch.id) == null) {
+            if (p == null && !guideFresh(ch.id)) {
                 try {
                     progs = api.guide(ch);
                 } catch (Exception e) {
@@ -1045,10 +1155,7 @@ public final class MainActivity extends Activity {
             Api.Program got = p;
             List<Api.Program> guide = progs;
             ui.post(() -> {
-                if (guide != null && cachedGuide(ch.id) == null) {
-                    guideCache.put(ch.id, new CachedGuide(guide, Clock.now()));
-                    for (Api.Program g : guide) knownTitle(g.title, 2);
-                }
+                if (guide != null && !guideFresh(ch.id)) putGuide(ch, guide);
                 if (got != null) onAir.put(ch.id, got);
                 Api.Program air = onAirNow(ch);
                 // The banner is up for this channel: its hint and pill follow the fact (R4, M13).
@@ -1070,8 +1177,8 @@ public final class MainActivity extends Activity {
      * rewind past its start read as a hard edge). Quiet: it runs after the first picture and on the first step.
      */
     private void ensureGuide(Api.Channel ch) {
-        if (ch == null || cachedGuide(ch.id) != null || !guideLoading.add(ch.id)) return;
-        io.execute(() -> {
+        if (ch == null || guideFresh(ch.id) || gridPending.contains(ch.id) || !guideLoading.add(ch.id)) return;
+        net.execute(() -> {
             List<Api.Program> got = null;
             try {
                 got = api.guide(ch);
@@ -1081,10 +1188,7 @@ public final class MainActivity extends Activity {
             List<Api.Program> guide = got;
             ui.post(() -> {
                 guideLoading.remove(ch.id);
-                if (guide != null && cachedGuide(ch.id) == null) {
-                    guideCache.put(ch.id, new CachedGuide(guide, Clock.now()));
-                    for (Api.Program g : guide) knownTitle(g.title, 2);
-                }
+                if (guide != null) putGuide(ch, guide);
             });
         });
     }
@@ -1104,18 +1208,50 @@ public final class MainActivity extends Activity {
     }
 
     /**
-     * The channel's cached guide, or null when there is none or it is older than {@link #GUIDE_TTL_MS}.
-     * The grid reads this, so a day-old cache answers null and the grid fetches again (found on the TV,
-     * 2026-10-17: Tablå opened after a day was blank).
+     * The channel's cached guide, however old, or null when none was ever fetched (E9, stale-while-revalidate). The
+     * grid draws it at once and a guide older than {@link #GUIDE_TTL_MS} is fetched again behind it
+     * ({@link #guideFresh}). It used to answer null past the TTL and drop the entry, so after an hour of idle every
+     * row of Tablå turned into "Laddar …" until a new answer came, and stayed so when none came.
      */
     private List<Api.Program> cachedGuide(String channelId) {
         CachedGuide c = guideCache.get(channelId);
-        if (c == null) return null;
-        if (Clock.now() - c.fetchedAtMs > GUIDE_TTL_MS) {
-            guideCache.remove(channelId); // gone: the next gridWant queues the channel again
-            return null;
+        return c == null ? null : c.list;
+    }
+
+    /** True when the channel's guide is cached and younger than {@link #GUIDE_TTL_MS} (found on the TV, 2026-10-17: a day-old cache drew blank). */
+    private boolean guideFresh(String channelId) {
+        CachedGuide c = guideCache.get(channelId);
+        return c != null && Clock.now() - c.fetchedAtMs <= GUIDE_TTL_MS;
+    }
+
+    /** A guide arrived: it replaces the cached one, except that an empty answer never replaces programmes. */
+    private void putGuide(Api.Channel ch, List<Api.Program> guide) {
+        CachedGuide old = guideCache.get(ch.id);
+        if (guide.isEmpty() && old != null && !old.list.isEmpty()) {
+            guideCache.put(ch.id, new CachedGuide(old.list, Clock.now()));
+        } else {
+            guideCache.put(ch.id, new CachedGuide(guide, Clock.now()));
         }
-        return c.list;
+        gridFailed.remove(ch.id);
+        for (Api.Program g : guide) knownTitle(g.title, 2);
+        if (gridOpen) grid.dataChanged();
+    }
+
+    /**
+     * The programme to show as on air on {@code ch} at {@code t} (U16): the now/next pair (its next programme once the
+     * one "now" has ended), else the "current" answer, else the guide; null in a gap or when nothing is known. The
+     * banner, the catalogue's cards and the media session read this, so none of them shows a programme past its slot.
+     */
+    private Api.Program programmeOn(Api.Channel ch, long t) {
+        if (nowForTest == null || channels.indexOf(ch) != current) {
+            Api.Program p = Schedule.onAt(ch, null, t);
+            if (p != null) return p;
+        } else {
+            return ch.now; // a harness scenario sets the programme on air by hand
+        }
+        Api.Program a = onAir.get(ch.id);
+        if (a != null && a.startMs <= t && t < a.endMs) return a;
+        return Schedule.in(cachedGuide(ch.id), t);
     }
 
     /**
@@ -1211,10 +1347,11 @@ public final class MainActivity extends Activity {
 
     /** The channel's frame and its row, without touching the timer. */
     private void showChannelFrame(Api.Channel ch) {
+        Api.Program now = programmeOn(ch, Clock.now()); // never a programme whose slot has ended (U16)
         osd.showChannel(ch.number, ch.name,
-                ch.now == null ? null : ch.now.title,
-                ch.now == null ? 0 : ch.now.startMs,
-                ch.now == null ? 0 : ch.now.endMs);
+                now == null ? null : now.title,
+                now == null ? 0 : now.startMs,
+                now == null ? 0 : now.endMs);
         setOsdLogo(ch);
         osdChannel = ch;
         buildActions(ch);
@@ -1229,8 +1366,14 @@ public final class MainActivity extends Activity {
 
     private static final int GRID_MARGIN_ROWS = 3, GRID_MAX_INFLIGHT = 2;
     private final java.util.Set<String> gridPending = new java.util.HashSet<>();
-    /** Channels whose guide fetch failed, with when; older than {@link #GUIDE_TTL_MS} is retried. */
-    private final java.util.Map<String, Long> gridFailed = new java.util.HashMap<>();
+    /**
+     * Channels whose guide fetch failed, with how many times in a row (E9). A row without data shows
+     * `Kunde inte hämta listan · OK Försök igen` at once (never an endless "Laddar …") and is tried again on its own
+     * after {@link #GUIDE_RETRY_MS} (2 s, then 10 s), then only on OK, on the next refresh or when the network returns.
+     * A row with data keeps it on screen and is tried again later, quietly.
+     */
+    private final java.util.Map<String, Integer> gridFailed = new java.util.HashMap<>();
+    private static final long[] GUIDE_RETRY_MS = {2_000, 10_000};
     private final java.util.ArrayList<Api.Channel> gridQueue = new java.util.ArrayList<>();
     private int gridInFlight;
     private boolean gridOkDown, gridHoldDone;
@@ -1259,21 +1402,31 @@ public final class MainActivity extends Activity {
 
         @Override public List<Api.Program> guide(int row) {
             String id = channels.get(row).id;
-            List<Api.Program> g = cachedGuide(id);
+            List<Api.Program> g = cachedGuide(id); // however old: shown at once, fetched again behind it (E9)
             if (g != null) return g;
             return failedGuide(id) ? java.util.Collections.<Api.Program>emptyList() : null;
         }
+
+        @Override public boolean failed(int row) {
+            String id = channels.get(row).id;
+            return cachedGuide(id) == null && failedGuide(id);
+        }
     };
 
-    /** A guide fetch failed for the channel and the failure is young enough to stand (see {@link #gridFailed}). */
+    /** The channel's last guide fetch failed (see {@link #gridFailed}). */
     private boolean failedGuide(String channelId) {
-        Long at = gridFailed.get(channelId);
-        if (at == null) return false;
-        if (Clock.now() - at > GUIDE_TTL_MS) {
-            gridFailed.remove(channelId); // an old failure retries when the grid wants the channel again
-            return false;
+        return gridFailed.containsKey(channelId);
+    }
+
+    /** OK on a row whose guide failed, or the network is back: the row is fetched again now. */
+    private void retryGuide(Api.Channel ch) {
+        gridFailed.remove(ch.id);
+        if (gridOpen) {
+            grid.dataChanged();
+            gridWant(channels.indexOf(ch), channels.indexOf(ch));
+        } else {
+            ensureGuide(ch);
         }
-        return true;
     }
 
     private final GuideGridView.Listener gridListener = new GuideGridView.Listener() {
@@ -1310,6 +1463,7 @@ public final class MainActivity extends Activity {
         closeDetail();
         osd.hideNow();
         gridOpen = true;
+        gridFailed.clear(); // a row that failed before is tried again: opening Tablå is a retry (E9)
         grid.setAlpha(1f);
         grid.setVisibility(View.VISIBLE);
         grid.open(row, Clock.now());
@@ -1326,7 +1480,10 @@ public final class MainActivity extends Activity {
 
     /** OK on a block: the programme on air plays live, a past one from its start (catch-up); a future one does nothing (the footer says when it airs). */
     private void gridOk(int row, Api.Program p) {
-        if (p == null) return;
+        if (p == null) {
+            if (gridSource.failed(row)) retryGuide(channels.get(row)); // the error row: OK Försök igen (U4)
+            return;
+        }
         long now = Clock.now();
         if (p.startMs <= now && now < p.endMs) {
             closeBrowser();
@@ -1386,7 +1543,9 @@ public final class MainActivity extends Activity {
     private void gridWant(int first, int last) {
         for (int r = Math.max(0, first); r <= Math.min(channels.size() - 1, last); r++) {
             Api.Channel c = channels.get(r);
-            if (cachedGuide(c.id) != null || failedGuide(c.id) || gridPending.contains(c.id) || gridQueue.contains(c)) continue;
+            // A stale guide is fetched again (it stays on screen meanwhile); a failed one waits for its retry.
+            if (guideFresh(c.id) || failedGuide(c.id) || gridPending.contains(c.id) || guideLoading.contains(c.id)
+                    || gridQueue.contains(c)) continue;
             gridQueue.add(c);
         }
         gridPump();
@@ -1405,7 +1564,7 @@ public final class MainActivity extends Activity {
             final Api.Channel ch = gridQueue.remove(best);
             gridPending.add(ch.id);
             gridInFlight++;
-            io.execute(() -> {
+            net.execute(() -> { // bounded (Http.bounded): the slot is always given back, so no row waits for ever
                 List<Api.Program> progs = null;
                 try {
                     progs = api.guide(ch);
@@ -1416,16 +1575,41 @@ public final class MainActivity extends Activity {
                 ui.post(() -> {
                     gridInFlight--;
                     gridPending.remove(ch.id);
-                    if (got == null || got.isEmpty()) {
-                        gridFailed.put(ch.id, Clock.now());
-                    } else {
-                        guideCache.put(ch.id, new CachedGuide(got, Clock.now()));
-                        for (Api.Program q : got) knownTitle(q.title, 2);
-                    }
+                    if (got == null) guideFailed(ch);
+                    else putGuide(ch, got); // an empty answer is "Tablå saknas", not a failure
                     if (gridOpen) grid.dataChanged();
                     gridPump();
                 });
             });
+        }
+    }
+
+    /**
+     * A guide fetch failed (E9). With programmes on screen nothing changes: they stay, and the next refresh tries
+     * again. Without, the row says so at once and is tried again on its own, twice, with a growing wait.
+     */
+    private void guideFailed(Api.Channel ch) {
+        if (cachedGuide(ch.id) != null) {
+            CachedGuide old = guideCache.get(ch.id); // tried again in a few minutes, not on every redraw
+            guideCache.put(ch.id, new CachedGuide(old.list, Math.max(old.fetchedAtMs, Clock.now() - GUIDE_TTL_MS + 5 * 60_000L)));
+            return;
+        }
+        int n = gridFailed.containsKey(ch.id) ? gridFailed.get(ch.id) + 1 : 1;
+        gridFailed.put(ch.id, n);
+        if (n <= GUIDE_RETRY_MS.length) {
+            ui.postDelayed(() -> {
+                Integer now = gridFailed.get(ch.id);
+                if (now == null || now != n) return; // answered, retried by hand, or failed again meanwhile
+                gridFailed.remove(ch.id);
+                if (gridOpen) {
+                    int r = channels.indexOf(ch);
+                    gridWant(r, r);
+                    gridFailed.put(ch.id, n); // the count goes on while the retry runs (the row keeps its error text)
+                    grid.invalidate();
+                } else {
+                    gridFailed.put(ch.id, n);
+                }
+            }, GUIDE_RETRY_MS[n - 1]);
         }
     }
 
@@ -2340,9 +2524,11 @@ public final class MainActivity extends Activity {
             }
             if (!cont.isEmpty()) shelves.add(new CatalogueView.Shelf("Fortsätt titta", cont));
             List<CatalogueView.Card> nowCards = new ArrayList<>();
+            long t = Clock.now();
             for (Api.Channel c : channels) {
-                if (c.now == null) continue;
-                nowCards.add(new CatalogueView.Card("ch:" + c.id, c.now.title, c.name, "logo:" + c.id, progress(c.now, Clock.now())));
+                Api.Program on = programmeOn(c, t);
+                if (on == null) continue;
+                nowCards.add(CatalogueView.Card.onAir("ch:" + c.id, on.title, c.name, "logo:" + c.id, on.startMs, on.endMs));
             }
             if (!nowCards.isEmpty()) shelves.add(new CatalogueView.Shelf("Just nu", nowCards));
             List<CatalogueView.Card> recents = new ArrayList<>();
@@ -2365,11 +2551,12 @@ public final class MainActivity extends Activity {
         long now = Clock.now();
         List<CatalogueView.Card> chans = new ArrayList<>(), onNow = new ArrayList<>();
         for (Api.Channel c : channels) {
-            if (matchAt(norm(c.name), nq) >= 0 && c.now != null) {
-                chans.add(new CatalogueView.Card("ch:" + c.id, c.now.title, c.name, "logo:" + c.id, progress(c.now, now)));
+            Api.Program on = programmeOn(c, now);
+            if (matchAt(norm(c.name), nq) >= 0 && on != null) {
+                chans.add(CatalogueView.Card.onAir("ch:" + c.id, on.title, c.name, "logo:" + c.id, on.startMs, on.endMs));
             }
-            if (c.now != null && matchAt(norm(c.now.title), nq) >= 0) {
-                onNow.add(new CatalogueView.Card("ch:" + c.id, c.now.title, c.name, "logo:" + c.id, progress(c.now, now)));
+            if (on != null && matchAt(norm(on.title), nq) >= 0) {
+                onNow.add(CatalogueView.Card.onAir("ch:" + c.id, on.title, c.name, "logo:" + c.id, on.startMs, on.endMs));
             }
         }
         if (!chans.isEmpty()) shelves.add(new CatalogueView.Shelf("Kanaler", chans));
@@ -4416,11 +4603,6 @@ public final class MainActivity extends Activity {
         return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
-    private static float progress(Api.Program p, long now) {
-        if (p.endMs <= p.startMs) return -1;
-        return Math.max(0f, Math.min(1f, (now - p.startMs) / (float) (p.endMs - p.startMs)));
-    }
-
     // ---- Keys ----------------------------------------------------------------------------
 
     private static boolean isOk(int k) {
@@ -4432,6 +4614,7 @@ public final class MainActivity extends Activity {
         int k = e.getKeyCode();
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         lastKeyMs = android.os.SystemClock.uptimeMillis(); // Nästa avsnitt stops auto-playing after 90 min idle
+        userActivity(); // U15: any key or remote event restarts the idle hour
         if (down && e.getRepeatCount() == 0 && transientHint != null) {
             transientHint = null;
             updateHint();
@@ -5781,7 +5964,8 @@ public final class MainActivity extends Activity {
             subtitle = playingMedia.seriesTitle == null ? "" : playingMedia.seriesTitle;
         } else {
             Api.Channel shown = delayedChannel != null ? delayedChannel : ch;
-            title = playingLive && ch != null && ch.now != null ? ch.now.title : playingTitle;
+            Api.Program on = playingLive && ch != null ? programmeOn(ch, Clock.now()) : null;
+            title = on != null ? on.title : playingTitle;
             subtitle = shown == null ? "" : shown.name;
         }
         return SessionBridge.of(paused, buffering, playingLive, rewindable, next != null && next.playable != null, restart, pos, dur, title, subtitle);
@@ -5893,6 +6077,9 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onStop() {
+        idleCheck(); // the state as it was on screen: content that played keeps the hour from counting until now
+        ui.removeCallbacks(idleRun);
+        stoppedAtMs = android.os.SystemClock.elapsedRealtime();
         super.onStop();
         visible = false;
         ui.removeCallbacks(tick);
@@ -5908,11 +6095,135 @@ public final class MainActivity extends Activity {
         visible = true;
         captions.setLook(CaptionLook.system(this)); // the viewer may have changed the accessibility style meanwhile
         if (player != null) tick();
-        if (player != null && player.getMediaItemCount() > 0) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        // U15: an hour or more away (standby, another app) with nothing in use: back to live, as after an idle hour on
+        // screen. Nothing played meanwhile (leaving the app pauses), so a film left playing returns to live too; its
+        // place is saved (Fortsätt titta) as on every stop.
+        boolean reset = stoppedAtMs > 0 && !channels.isEmpty() && idle.idleMs(now) >= Idle.RESET_AFTER_MS;
+        if (reset) {
+            idle.activity(now);
+            idleReset(Idle.LIVE, "back after " + (now - stoppedAtMs) / 60_000 + " min away");
+        } else if (player != null && player.getMediaItemCount() > 0) {
             if (playingLive && current >= 0) tune(current); // a stale live stream; re-tune
             else if (!paused) player.play();
         }
+        // E9: back on screen, the data is fetched again behind what is shown (a TV standby leaves it hours old).
+        if (!reset && stoppedAtMs > 0 && Clock.now() - nowNextAtMs > RESUME_REFRESH_MS) refreshData("resume");
+        stoppedAtMs = 0;
+        scheduleIdleCheck();
         updateSession();
+    }
+
+    // ---- E9: the network returns ---------------------------------------------------------------------------
+
+    private android.net.ConnectivityManager.NetworkCallback networkCallback;
+
+    /** Listens for the default network; when it comes back after a failure or a long gap, the data is fetched again. */
+    private void watchNetwork() {
+        try {
+            android.net.ConnectivityManager cm = getSystemService(android.net.ConnectivityManager.class);
+            if (cm == null) return;
+            networkCallback = new android.net.ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(android.net.Network n) {
+                    ui.post(MainActivity.this::networkBack);
+                }
+            };
+            cm.registerDefaultNetworkCallback(networkCallback);
+        } catch (RuntimeException e) { // no permission or no service on this device: the timers still refresh
+            Log.w(TAG, "network callback", e);
+            networkCallback = null;
+        }
+    }
+
+    private void networkBack() {
+        if (channels.isEmpty() || isDestroyed()) return;
+        boolean failed = nowNextFailures > 0 || !gridFailed.isEmpty();
+        if (!failed && Clock.now() - nowNextAtMs <= RESUME_REFRESH_MS) return; // the first callback at start, or a blip
+        gridFailed.clear();
+        if (gridOpen) grid.dataChanged();
+        refreshData("network back");
+    }
+
+    // ---- U15: the idle reset -------------------------------------------------------------------------------
+
+    /** The idle hour, on a clock that runs on in standby; see {@link Idle} for what counts. */
+    private final Idle idle = new Idle(android.os.SystemClock.elapsedRealtime());
+    private final Runnable idleRun = () -> {
+        idleCheck();
+        scheduleIdleCheck();
+    };
+    /** When the app left the screen (elapsedRealtime), or 0 while on screen. */
+    private long stoppedAtMs;
+    /** Back on screen after this long since the last now/next, everything is fetched again (E9). */
+    private static final long RESUME_REFRESH_MS = 2 * 60_000L;
+
+    /** A key, a remote or media-session command, a link: the idle hour starts again. */
+    private void userActivity() {
+        idle.activity(android.os.SystemClock.elapsedRealtime());
+    }
+
+    private void scheduleIdleCheck() {
+        ui.removeCallbacks(idleRun);
+        if (visible) ui.postDelayed(idleRun, idle.nextCheckInMs(android.os.SystemClock.elapsedRealtime()));
+    }
+
+    /** What the app is doing, as the idle rule reads it. */
+    private Idle.State idleState() {
+        Idle.State s = new Idle.State();
+        s.ready = !channels.isEmpty() && current >= 0 && login.getVisibility() != View.VISIBLE;
+        boolean moving = !paused && (player == null
+                || (player.getPlayWhenReady() && player.getPlaybackState() != Player.STATE_ENDED
+                        && player.getPlaybackState() != Player.STATE_IDLE));
+        s.playing = moving;
+        s.liveAtEdge = playingLive && behindLiveMs() <= OsdView.LIVE_SLACK_MS;
+        s.surfaceOpen = browserOpen || pickerOpen || detail.getVisibility() == View.VISIBLE;
+        s.failed = tuneFailed;
+        return s;
+    }
+
+    private void idleCheck() {
+        if (!visible) return;
+        if (channels.isEmpty()) {
+            return;
+        }
+        int what = idle.check(android.os.SystemClock.elapsedRealtime(), idleState());
+        if (what != Idle.NONE) idleReset(what, "idle " + Idle.RESET_AFTER_MS / 60_000 + " min");
+    }
+
+    /**
+     * The reset (U15): every surface closes (the browser with its query, the detail, the picker, the strip, a pending
+     * seek), the next Tablå opens on now, and the data is fetched again (E9). {@link Idle#LIVE} also plays the last
+     * live channel live, unless it already plays live at the edge; {@link Idle#CLOSE} leaves the title that plays.
+     */
+    private void idleReset(int what, String why) {
+        Log.i(TAG, "idle reset (" + why + "): " + (what == Idle.LIVE ? "live" : what == Idle.CLOSE ? "close" : "refresh")
+                + " " + scrubState());
+        if (what != Idle.REFRESH) {
+            closePicker();
+            closeDetail();
+            closeBrowser();
+            cancelSeek();
+            hideControls();
+            searchLeftAt = 0; // the next Sök starts empty
+            query = "";
+            results = new ArrayList<>();
+            resultsQuery = null;
+            expandedGroups.clear();
+            keyboard.home();
+        }
+        if (what == Idle.LIVE && current >= 0) {
+            boolean liveNow = playingLive && !paused && !tuneFailed && behindLiveMs() <= OsdView.LIVE_SLACK_MS;
+            if (!liveNow || stoppedAtMs > 0) tune(current); // back from away: the live stream is hours old, a fresh one
+        }
+        refreshData("idle reset");
+    }
+
+    /** Test hook (U15): the idle state as the rule reads it, "ready playing liveAtEdge surfaceOpen failed". */
+    String idleStateForTest() {
+        Idle.State s = idleState();
+        return (s.ready ? "ready" : "-") + " " + (s.playing ? "playing" : "-") + " " + (s.liveAtEdge ? "live" : "-") + " "
+                + (s.surfaceOpen ? "open" : "-") + " " + (s.failed ? "failed" : "-");
     }
 
     @Override
@@ -5920,7 +6231,15 @@ public final class MainActivity extends Activity {
         ui.removeCallbacksAndMessages(null); // no timer of this activity may outlive it
         session.release(); // after the callbacks: nothing the system sends reaches a dead activity
         if (player != null) player.release();
+        if (networkCallback != null) {
+            try {
+                getSystemService(android.net.ConnectivityManager.class).unregisterNetworkCallback(networkCallback);
+            } catch (RuntimeException ignored) {
+                // already gone
+            }
+        }
         io.shutdownNow();
+        net.shutdownNow();
         super.onDestroy();
     }
 }

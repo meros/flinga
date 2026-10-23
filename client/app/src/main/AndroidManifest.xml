@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- C: the default network's callback, so the data is fetched again when the network returns (normal permission). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Fortsätt titta on the Android TV home screen (Watch Next, TvContract API 26+). The name is the TvProvider's own; the
          SDK has no constant for it, and whether the TV grants it at install time is checked on the TV (TV-CHECKLIST). -->
     <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />

@@ -36,13 +36,31 @@ public final class CatalogueView extends View {
         public final String title, sub, imageKey;
         public final String key;
         public final float progress;
+        /** A programme on air: its slot (epoch ms), so the lane follows the clock as it is drawn (U16); 0 otherwise. */
+        public final long startMs, endMs;
 
         public Card(String key, String title, String sub, String imageKey, float progress) {
+            this(key, title, sub, imageKey, progress, 0, 0);
+        }
+
+        private Card(String key, String title, String sub, String imageKey, float progress, long startMs, long endMs) {
             this.key = key;
             this.title = title;
             this.sub = sub;
             this.imageKey = imageKey;
             this.progress = progress;
+            this.startMs = startMs;
+            this.endMs = endMs;
+        }
+
+        /** A channel's programme on air: the lane is the share of its slot that has passed, at every draw. */
+        public static Card onAir(String key, String title, String sub, String imageKey, long startMs, long endMs) {
+            return new Card(key, title, sub, imageKey, -1f, startMs, endMs);
+        }
+
+        /** The lane's fill at {@code t}: clamped to the slot, never past it; -1 for none. */
+        public float progressAt(long t) {
+            return endMs > startMs ? Progress.fraction(startMs, endMs, t) : progress;
         }
     }
 
@@ -399,6 +417,9 @@ public final class CatalogueView extends View {
     @Override
     protected void onDraw(Canvas c) {
         drawn.clear();
+        removeCallbacks(redraw);
+        now = se.lite.play.Clock.now();
+        redrawIn = Progress.MAX_REDRAW_MS;
         int w = getWidth();
         c.drawColor(Theme.BG); // opaque: the video must not show between the elements
         keepFocusVisible();
@@ -431,7 +452,12 @@ public final class CatalogueView extends View {
         c.restore();
         drawField(c, top0(), w);
         drawHint(c, hintTop(), w);
+        if (redrawIn < Progress.MAX_REDRAW_MS && getVisibility() == VISIBLE) postDelayed(redraw, redrawIn);
     }
+
+    /** A lane on a card of a programme on air moves a pixel, or its programme ends: draw again then (U16). */
+    private final Runnable redraw = this::invalidate;
+    private long now, redrawIn;
 
     /** The footer line: the key hints of what has the focus, along the bottom. */
     private void drawHint(Canvas c, float top, int w) {
@@ -460,12 +486,14 @@ public final class CatalogueView extends View {
             }
             c.drawBitmap(bmp, null, dst, bmpP);
         }
-        if (cd.progress >= 0) { // a lane along the poster's bottom edge (Fortsätt titta)
+        float progress = cd.progressAt(now);
+        if (cd.endMs > cd.startMs) redrawIn = Math.min(redrawIn, Progress.redrawDelay(cd.startMs, cd.endMs, cw - 2 * radius, now));
+        if (progress >= 0) { // a lane along the poster's bottom edge (Fortsätt titta, a programme on air)
             float lh = Theme.dp(getContext(), Theme.PROGRESS_ROW);
             rect.set(left + radius, top + ch - lh, left + cw - radius, top + ch);
             fill.setColor(Theme.TRACK);
             c.drawRect(rect, fill);
-            rect.set(left + radius, top + ch - lh, left + radius + (cw - 2 * radius) * cd.progress, top + ch);
+            rect.set(left + radius, top + ch - lh, left + radius + (cw - 2 * radius) * progress, top + ch);
             fill.setColor(Theme.ACCENT);
             c.drawRect(rect, fill);
         }

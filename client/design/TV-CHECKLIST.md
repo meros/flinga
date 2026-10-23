@@ -238,3 +238,25 @@ None of this runs in the harness. Each line names the command that settles it.
   10 minutes (`adb logcat | grep "image "`).
 - [ ] **Video under the hero.** Live audio keeps playing while Serie covers the picture; Back to Sök shows
   the video again at once.
+
+## Idle, progress and freshness (U15, U16, E9, E10; 2026-10-23)
+
+- [ ] **U15, one hour in Tablå.** Open Tablå, scroll away from now, put the remote down for 61 minutes. The browser
+      has closed, the picture is the last live channel full screen, and the next Tablå opens on now with fresh rows
+      (no `Laddar …`). `adb logcat -s TeliaLite | grep "idle reset"` names what it did.
+- [ ] **U15, paused.** Pause a live channel (start-over) or an episode and leave it 61 minutes (the TV may sleep): it
+      returns to the live channel, live. A film or episode left playing for two hours without a key is never stopped.
+- [ ] **U15, standby.** Turn the TV off for more than an hour with Tablå open, turn it on: live TV, nothing open.
+- [ ] **U16, a real handover.** Watch SVT2 across Aktuellt into Kulturnyheterna with the strip up (OK) and with Tablå
+      open: at the slot's end the title, the times and the bar change to Kulturnyheterna at once, the bar never sits
+      at the end of Aktuellt, and the lane in Tablå and the Just nu card move on their own. If the broadcast runs over
+      its slot the app shows the next programme from the slot's end: say whether that reads as honest or confusing.
+- [ ] **U16, smoothness.** The strip's playhead and the Tablå lanes move without visible steps on a short programme
+      (5 to 15 min). CPU with the strip up and with Tablå open: `adb shell top -n 1 | grep se.lite.play` stays near idle.
+- [ ] **E9, a long standby.** After a night in standby, Tablå opens with the old rows drawn at once and they update
+      within a few seconds; no row stays on `Laddar …` for more than 12 s; a row that fails says `Kunde inte hämta
+      listan · OK Försök igen` and OK fetches it. Unplug the network for a minute and plug it back: the rows recover.
+- [ ] **E9, the token.** After more than a day away the first Tablå and the first zap work without a login screen
+      (the refresh ahead of expiry reads `validTo`; its format is assumed, not recorded: check `api` prefs `validTo`).
+- [ ] **E10, the zap.** `zap-bench.sh` with this build: the median stays near 578 ms (the ticket path is unchanged,
+      the guide fetches no longer share its thread). The first key press after an hour's standby answers at once.

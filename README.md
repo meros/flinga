@@ -82,7 +82,7 @@ Measured 15–16 Oct 2026 on the target device (Android 14, 32-bit).
   API fixtures, drives the real activity with synthetic key events, and renders 266 screenshots
   at 1920×1080. Every screenshot checks its geometry twice — once with the recorded data and
   once with stressed data (every title three times longer, three-digit channel numbers) — and
-  fails when text length moves any rect. 34 test classes, 185 tests.
+  fails when text length moves any rect. 38 test classes, 221 tests.
 - **A design system first.** `client/design/DESIGN.md` is the spec; `REQUIREMENTS.md` holds
   every requirement with its verification evidence; the review rounds (R1–R4) are recorded
   with what failed and what changed.

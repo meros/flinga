@@ -170,6 +170,10 @@ The logo is the channel's identity: number and name are not drawn next to it, on
   Back closes everything. Focus is restored to the row you came from.
 - Motion (optional, `Theme.animations`): 120 ms alpha in for OSD and toast. No row animation, no animated
   scroll, no spinners, no shimmer.
+- Progress that follows the clock (U16: the live strip's playhead, the Tablå lanes and now-line, the Just nu cards) is
+  computed at draw time and the view draws again when the fill would move one pixel or the slot ends
+  (`ui.Progress.redrawDelay`, 100 ms to 30 s): smooth on the pixel grid without a running animation or per-frame work, and
+  nothing is scheduled while the view is hidden. A bar never passes 100 %.
 
 ## The app on the TV (F20, F23)
 
@@ -197,7 +201,7 @@ The logo is the channel's identity: number and name are not drawn next to it, on
 | OSD           | `OsdView`                                          | the one overlay frame (eyebrow, title, bar with its numbers, pill row) for live, behind live, catch-up and VOD: light (passive, and scrubbing: no pills, a hint for OK) or full (pills and the rail's peek); status line; text (heading + body) for a fatal error only; hidden |
 | Rail peek     | `RailView` (peek mode)                             | hidden, or a full-height strip at the screen's left edge with five dimmed icons and `‹ Meny` while the overlay's pills have the focus |
 | Caption       | `CaptionView`, `CaptionLook`                       | hidden (no cue), or one box centred at the bottom: the viewer's system caption style, else white on `0xB3000000`, 5.5 % of the height, 80 % of the width at most; above the overlay's content while the overlay is up |
-| Guide grid    | `GuideGridView`                                    | hidden, shown full screen (B4): ruler (30 min ticks, day), one 56 dp row per channel (logo slot 96 x 45, blocks by duration, 3 h window, the focused block `FOCUS`, the one on air with a progress lane, past without catch-up `TEXT_3`, a placeholder block `Laddar …` / `Tablå saknas`), the now-line (`ACCENT_ON_DARK` 70 %), the footer hints, the `NU` chip over the logo column (plain, accent when the window excludes now, `FOCUS` when focused); a cut focused block shows `‹` `›`; dimmed to 30 % under a sheet |
+| Guide grid    | `GuideGridView`                                    | hidden, shown full screen (B4): ruler (30 min ticks, day), one 56 dp row per channel (logo slot 96 x 45, blocks by duration, 3 h window, the focused block `FOCUS`, the one on air with a progress lane, past without catch-up `TEXT_3`, a placeholder block `Laddar …` / `Tablå saknas` / `Kunde inte hämta listan · OK Försök igen`), the now-line (`ACCENT_ON_DARK` 70 %), the footer hints, the `NU` chip over the logo column (plain, accent when the window excludes now, `FOCUS` when focused); a cut focused block shows `‹` `›`; dimmed to 30 % under a sheet |
 | Login         | `LoginView`                                        | waiting, new code, error status                                                                                              |
 | Toast         | `Snack`                                            | info, success, error; auto-hide or sticky                                                                                    |
 

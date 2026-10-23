@@ -401,7 +401,10 @@ public class Screens {
             "key:DPAD_LEFT*2", "expectgrid:SVT1|Lokala nyheter", "expectgridfooter:Spela", "shot:302-grid-past-block",
             "key:DPAD_CENTER", "wait:300", "expect:osd:timeline", "expecteyebrow:SVT1", "expectpassive", "expectgrid:off", "shot:303-grid-catchup-started");
 
-    /** Several channels with logos, a channel with a gap in its programmes, and one with no guide at all ("Tablå saknas"). */
+    /**
+     * Several channels with logos, a channel with a gap in its programmes, and one with no guide at all ("Tablå saknas":
+     * the server answers with no programmes, fixtures/guide__777.json; a fetch that fails is the error row instead, E9).
+     */
     static final String GRID_ROWS = String.join(";",
             "wait:300", "menu:Tablå", "wait:800", "expectgrid:SVT1|Fråga Lund",
             "key:DPAD_DOWN*2", "expectgrid:TV3|", "shot:304-grid-rows-with-logos",

@@ -53,7 +53,15 @@ final class GuideGridView extends View {
 
         /** The channel's programmes, oldest first: null while loading, empty when there is none or it failed. */
         List<Api.Program> guide(int row);
+
+        /** True when the row has no programmes because the fetch failed (the row offers OK Försök igen, U4). */
+        default boolean failed(int row) {
+            return false;
+        }
     }
+
+    /** The text of a row without programmes (UX.md 6): waiting, failed (OK retries), or the channel has none. */
+    static final String LOADING = "Laddar …", FAILED = "Kunde inte hämta listan · OK Försök igen", NONE = "Tablå saknas";
 
     /** What the keys lead to. */
     interface Listener {
@@ -346,9 +354,11 @@ final class GuideGridView extends View {
     @Override
     protected void onDraw(Canvas c) {
         drawn.clear();
+        removeCallbacks(redraw);
         if (source == null) return;
         int w = getWidth(), h = getHeight();
         long now = Clock.now();
+        redrawIn = se.lite.play.ui.Progress.MAX_REDRAW_MS;
         Ui.fillExcept(c, w, h, pip, Theme.BG);
         keepRowVisible();
         if (notifyPending) {
@@ -374,6 +384,37 @@ final class GuideGridView extends View {
         c.restore();
 
         drawFooter(c, safeX, rowsBottom + Theme.dp(getContext(), 20), gridR, now);
+        // The now-line moves a pixel every WINDOW_MS / width; the lanes asked for their own pixel and end above.
+        redrawIn = Math.min(redrawIn, Math.max(se.lite.play.ui.Progress.MIN_REDRAW_MS, (long) (WINDOW_MS / Math.max(1f, gridR - gridL))));
+        if (getVisibility() == VISIBLE) postDelayed(redraw, redrawIn);
+    }
+
+    /**
+     * The next redraw (U16, E9): the now-line and the lanes move on their own while the grid is up, the programme that
+     * ends hands over to the next on time, and the rows on screen are asked for again (a guide that went stale while
+     * the grid stood open is fetched again behind what is drawn). One runnable, no allocation; nothing runs while the
+     * grid is hidden (a hidden view is not drawn, so nothing is posted again).
+     */
+    private final Runnable redraw = () -> {
+        if (getVisibility() != VISIBLE) return;
+        notifyRows();
+        invalidate();
+    };
+    private long redrawIn;
+
+    /** Test hook: how long until the grid redraws on its own (ms), as planned by the last draw. */
+    long redrawInForTest() {
+        return redrawIn;
+    }
+
+    /** Test hook: the placeholder text of row {@code r} (null when it has programmes). */
+    String placeholderForTest(int r) {
+        List<Api.Program> g = source.guide(r);
+        return g == null || g.isEmpty() ? placeholder(r) : null;
+    }
+
+    private String placeholder(int r) {
+        return source.guide(r) == null ? LOADING : source.failed(r) ? FAILED : NONE;
     }
 
     /** The now-line: the one mark of "now" over the ruler and between the rows; the blocks are drawn over it. */
@@ -437,7 +478,7 @@ final class GuideGridView extends View {
             c.drawRoundRect(rect, radius, radius, fill);
             record("block" + r + ":none", rect.left, rect.top, rect.right, rect.bottom);
             titleP.setColor(focusRow ? Theme.ON_FOCUS_2 : Theme.TEXT_3);
-            drawTitle(c, loading ? "Laddar …" : "Tablå saknas", rect.left, rect.right, bt, bb);
+            drawTitle(c, placeholder(r), rect.left, rect.right, bt, bb);
             return;
         }
         for (int k = 0; k < g.size(); k++) {
@@ -464,7 +505,9 @@ final class GuideGridView extends View {
                 if (cutR) c.drawText("›", rr - pad / 2f - titleP.measureText("›"), cy, titleP);
             }
             if (air && p.endMs > p.startMs) { // the lane marks how far the programme has come
-                float pw = (rr - l) * Math.max(0f, Math.min(1f, (now - p.startMs) / (float) (p.endMs - p.startMs)));
+                float pw = (rr - l) * Math.max(0f, se.lite.play.ui.Progress.fraction(p.startMs, p.endMs, now));
+                // Redrawn when the lane moves a pixel, and at the programme's end: the handover is on time (U16).
+                redrawIn = Math.min(redrawIn, se.lite.play.ui.Progress.redrawDelay(p.startMs, p.endMs, Math.max(1f, rr - l - 2 * pad), now));
                 float ly = bb - laneH - gap;
                 rect.set(l + pad, ly, rr - pad, ly + laneH);
                 fill.setColor(f ? Theme.TRACK_ON_FOCUS : Theme.TRACK);
@@ -509,8 +552,10 @@ final class GuideGridView extends View {
         if (!active) return new String[] {"← →", "Byt vy", "↓", "Gå in", Theme.BACK, "Stäng"}; // the tab row has the focus
         String[] tail = {Theme.BACK, "Flikar"}; // Back steps out to the tab row first
         String[] head;
-        if (p == null) {
-            head = new String[] {"", source.guide(row) == null ? "Laddar …" : "Tablå saknas"};
+        if (p == null && source.failed(row)) {
+            head = new String[] {"OK", "Försök igen"};
+        } else if (p == null) {
+            head = new String[] {"", source.guide(row) == null ? LOADING : NONE};
         } else if (p.startMs <= now && now < p.endMs) {
             head = new String[] {"OK", "Titta direkt", "Håll OK", "Mer"};
         } else if (p.endMs <= now) {

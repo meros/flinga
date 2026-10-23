@@ -175,12 +175,16 @@ public class OsdView extends View {
         channel(channelNumber, channelName);
         title = nowTitle == null ? "" : nowTitle;
         if (nowTitle != null && nowEndMs > nowStartMs) {
-            liveFrac = Math.max(0f, Math.min(1f, (t - nowStartMs) / (float) (nowEndMs - nowStartMs)));
+            liveStartMs = nowStartMs;
+            liveEndMs = nowEndMs;
+            liveFrac = Math.max(0f, Progress.fraction(nowStartMs, nowEndMs, t));
             headFrac = liveFrac;
             labelStart = hhmm.format(new Date(nowStartMs));
             labelEnd = hhmm.format(new Date(nowEndMs));
             labelHead = hhmm.format(new Date(t));
+            headMinute = t / 60_000;
         } else {
+            liveStartMs = liveEndMs = 0;
             liveFrac = -1f;
             headFrac = 0f;
             labelStart = labelEnd = labelHead = null;
@@ -316,6 +320,7 @@ public class OsdView extends View {
     public OsdView showSeek(String eyebrow, String assetTitle, long posMs, long durMs) {
         mode = MODE_BAR;
         barKind = BAR_SEEK;
+        liveStartMs = liveEndMs = 0;
         assetFrame(eyebrow, assetTitle);
         liveFrac = -1f;
         headFrac = durMs > 0 ? Math.max(0f, Math.min(1f, posMs / (float) durMs)) : 0f;
@@ -348,6 +353,7 @@ public class OsdView extends View {
                                 long liveMs, long headMs) {
         mode = MODE_BAR;
         barKind = BAR_TIMELINE;
+        liveStartMs = liveEndMs = 0;
         channel(channelNumber, channelName);
         title = programmeTitle == null ? "" : programmeTitle;
         status = null;
@@ -482,6 +488,10 @@ public class OsdView extends View {
     public int visibilityChanges() {
         return visibilityChanges;
     }
+
+    /** The slot of the programme on air on the live banner (epoch ms), so it is drawn at the time of the draw; 0 otherwise. */
+    private long liveStartMs, liveEndMs, headMinute;
+    private final Runnable redraw = this::invalidate;
 
     private OsdView changed() {
         requestLayout();
@@ -660,6 +670,18 @@ public class OsdView extends View {
      * playhead. One size for all the numbers, on the bar's line or the one below.
      */
     private void drawBar(Canvas c, float x, float right, float lb, float hb, Paint.FontMetrics lm) {
+        removeCallbacks(redraw);
+        if (barKind == BAR_LIVE && liveEndMs > liveStartMs) { // live: the playhead is the clock, drawn where it is now (U16)
+            long t = Clock.now();
+            liveFrac = headFrac = Math.max(0f, Progress.fraction(liveStartMs, liveEndMs, t));
+            if (t / 60_000 != headMinute) {
+                headMinute = t / 60_000;
+                labelHead = hhmm.format(new Date(t));
+            }
+            float trackW = right - x - 2 * (slotEnd + slotGap) - 8f * progH / 2f;
+            // Drawn again when the playhead moves a pixel, and at the programme's end (the activity hands over then).
+            if (getVisibility() == VISIBLE) postDelayed(redraw, Progress.redrawDelay(liveStartMs, liveEndMs, Math.max(1f, trackW), t));
+        }
         label.setColor(Theme.TEXT_2);
         drawIn(c, labelStart, label, x, x + slotEnd, lb, false, "labelStart");
         drawIn(c, labelEnd, label, right - slotEnd, right, lb, true, "labelEnd");
